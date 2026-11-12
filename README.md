@@ -41,6 +41,7 @@ Optional settings in `.env`:
 | 10 | [`10_evaluation.py`](10_evaluation.py) | Test sets, rule checks, LLM-as-judge, cost tracking, comparing variants | `uv run 10_evaluation.py` |
 | 11 | [`11_async_streaming.py`](11_async_streaming.py) | Async calls with `asyncio.gather`, `astream_events`, streaming an agent's tokens, tool calls and progress | `uv run 11_async_streaming.py` |
 | 12 | [`12_fastapi_server.py`](12_fastapi_server.py) | Serve the agent with FastAPI: JSON and streaming (SSE) endpoints, per-thread memory, a browser chat page | `uv run 12_fastapi_server.py`, then open http://127.0.0.1:8001 |
+| 13 | [`13_create_agent_middleware.py`](13_create_agent_middleware.py) | The high-level `create_agent()`, typed agent results, built-in middleware (PII redaction, call limits, summarization, human approval) and writing your own | `uv run 13_create_agent_middleware.py` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
