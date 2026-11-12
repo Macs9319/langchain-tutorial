@@ -1,6 +1,6 @@
 # LangChain Tutorial Series
 
-Ten short, runnable Python scripts that go from a first chat call to a
+Short, runnable Python scripts that go from a first chat call to a
 multi-agent system with automated evaluation. Each tutorial builds on the
 previous ones, and every file explains itself in comments, so you can read
 them top to bottom.
@@ -39,6 +39,8 @@ Optional settings in `.env`:
 | 08 | [`08_human_in_the_loop.py`](08_human_in_the_loop.py) | Pause the agent for a person to approve, edit or reject an action | `uv run 08_human_in_the_loop.py --chat` |
 | 09 | [`09_multi_agent.py`](09_multi_agent.py) | A supervisor that routes work to specialist agents | `uv run 09_multi_agent.py` |
 | 10 | [`10_evaluation.py`](10_evaluation.py) | Test sets, rule checks, LLM-as-judge, cost tracking, comparing variants | `uv run 10_evaluation.py` |
+| 11 | [`11_async_streaming.py`](11_async_streaming.py) | Async calls with `asyncio.gather`, `astream_events`, streaming an agent's tokens, tool calls and progress | `uv run 11_async_streaming.py` |
+| 12 | [`12_fastapi_server.py`](12_fastapi_server.py) | Serve the agent with FastAPI: JSON and streaming (SSE) endpoints, per-thread memory, a browser chat page | `uv run 12_fastapi_server.py`, then open http://127.0.0.1:8000 |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
