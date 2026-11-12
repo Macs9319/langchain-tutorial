@@ -23,13 +23,13 @@ Setup:
 
 Run:
   uv run 12_fastapi_server.py
-  then open http://127.0.0.1:8000 for the chat page,
-  or http://127.0.0.1:8000/docs for FastAPI's interactive API docs.
+  then open http://127.0.0.1:8001 for the chat page,
+  or http://127.0.0.1:8001/docs for FastAPI's interactive API docs.
 
 Try it from another terminal:
-  curl -s localhost:8000/chat -H 'content-type: application/json' \\
+  curl -s localhost:8001/chat -H 'content-type: application/json' \\
        -d '{"message": "Is the Trail 500 in stock in Lisbon?"}'
-  curl -N localhost:8000/chat/stream -H 'content-type: application/json' \\
+  curl -N localhost:8001/chat/stream -H 'content-type: application/json' \\
        -d '{"message": "Where is order A1003?"}'
 """
 
