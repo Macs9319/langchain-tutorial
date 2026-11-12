@@ -23,6 +23,7 @@ Optional settings in `.env`:
 |---|---|---|
 | `OPENAI_MODEL` | `gpt-5-mini` | all tutorials |
 | `JUDGE_MODEL` | same as `OPENAI_MODEL` | 10 (the grading model) |
+| `FALLBACK_MODEL` | `gpt-5-nano` | 16 (the backup model) |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | all (see Tutorial 10) |
 
 ## The tutorials
@@ -44,6 +45,7 @@ Optional settings in `.env`:
 | 13 | [`13_create_agent_middleware.py`](13_create_agent_middleware.py) | The high-level `create_agent()`, typed agent results, built-in middleware (PII redaction, call limits, summarization, human approval) and writing your own | `uv run 13_create_agent_middleware.py` |
 | 14 | [`14_mcp_tools.py`](14_mcp_tools.py) | Connect to MCP servers: discover tools, read resources and prompts, give MCP tools to an agent. Includes a small server in [`mcp_servers/`](mcp_servers/) | `uv run 14_mcp_tools.py` |
 | 15 | [`15_long_term_memory.py`](15_long_term_memory.py) | Remember users across conversations with a store: memory tools, semantic search, automatic recall, SQLite persistence, letting users see and delete memories | `uv run 15_long_term_memory.py --chat --user sam` |
+| 16 | [`16_reliability.py`](16_reliability.py) | Survive failures and control cost: retryable errors, `.with_retry()`, fallback models, rate limiting, caching, retry/fallback middleware for agents | `uv run 16_reliability.py` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
