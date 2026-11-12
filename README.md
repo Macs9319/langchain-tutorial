@@ -43,6 +43,7 @@ Optional settings in `.env`:
 | 12 | [`12_fastapi_server.py`](12_fastapi_server.py) | Serve the agent with FastAPI: JSON and streaming (SSE) endpoints, per-thread memory, a browser chat page | `uv run 12_fastapi_server.py`, then open http://127.0.0.1:8001 |
 | 13 | [`13_create_agent_middleware.py`](13_create_agent_middleware.py) | The high-level `create_agent()`, typed agent results, built-in middleware (PII redaction, call limits, summarization, human approval) and writing your own | `uv run 13_create_agent_middleware.py` |
 | 14 | [`14_mcp_tools.py`](14_mcp_tools.py) | Connect to MCP servers: discover tools, read resources and prompts, give MCP tools to an agent. Includes a small server in [`mcp_servers/`](mcp_servers/) | `uv run 14_mcp_tools.py` |
+| 15 | [`15_long_term_memory.py`](15_long_term_memory.py) | Remember users across conversations with a store: memory tools, semantic search, automatic recall, SQLite persistence, letting users see and delete memories | `uv run 15_long_term_memory.py --chat --user sam` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -71,6 +72,8 @@ training data, which makes it obvious when retrieval works. Tutorials 08 and
 
 - `memory.sqlite*`: the saved conversation from Tutorial 07's `--chat`. Delete
   it, or run with `--chat --new`, to start over.
+- `long_term_memory.sqlite*`: facts Tutorial 15's `--chat` remembers about each
+  user. List them with `--show --user NAME`; delete the file to forget everything.
 
 They're listed in `.gitignore` along with `.env`, so neither they nor your API
 key get committed.
