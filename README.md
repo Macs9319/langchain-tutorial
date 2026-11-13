@@ -57,6 +57,7 @@ Run any tutorial without arguments to see its built-in demos. Scripts with
 ## How they connect
 
 ```
+Foundations
 01 chat ─► 02 chains ─► 03 structured output ─────────────┐
               │                                           │
               ├─► 04 memory ──────┐                       │
@@ -64,6 +65,18 @@ Run any tutorial without arguments to see its built-in demos. Scripts with
               └─► 06 RAG ─────────┘        │              │
                     │                      └─► 09 multi-agent (uses 03 for routing)
                     └──────────────────────────► 10 evaluation
+
+Production
+07 + 08 ─► 11 streaming ─► 12 FastAPI server
+07 + 08 ─► 13 create_agent + middleware ─┬─► 14 MCP tools
+                                         ├─► 15 long-term memory
+                                         ├─► 16 reliability (retry, fallback)
+                                         └─► 18 guardrails
+03 ─────► 17 images and PDFs
+06 + 10 ─► 19 advanced RAG (hybrid search, rewrite, rerank)
+
+Capstone
+11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests)
 ```
 
 ## Sample data
