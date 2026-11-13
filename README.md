@@ -46,6 +46,10 @@ Optional settings in `.env`:
 | 14 | [`14_mcp_tools.py`](14_mcp_tools.py) | Connect to MCP servers: discover tools, read resources and prompts, give MCP tools to an agent. Includes a small server in [`mcp_servers/`](mcp_servers/) | `uv run 14_mcp_tools.py` |
 | 15 | [`15_long_term_memory.py`](15_long_term_memory.py) | Remember users across conversations with a store: memory tools, semantic search, automatic recall, SQLite persistence, letting users see and delete memories | `uv run 15_long_term_memory.py --chat --user sam` |
 | 16 | [`16_reliability.py`](16_reliability.py) | Survive failures and control cost: retryable errors, `.with_retry()`, fallback models, rate limiting, caching, retry/fallback middleware for agents | `uv run 16_reliability.py` |
+| 17 | [`17_images_and_pdfs.py`](17_images_and_pdfs.py) | Send images and PDFs to the model: describe photos, extract receipt data, question a PDF, give an agent an uploaded photo | `uv run 17_images_and_pdfs.py` |
+| 18 | [`18_guardrails.py`](18_guardrails.py) | Defend against prompt injection in layers: rules enforced in code, marking untrusted text, screening inputs and tool results, checking outputs | `uv run 18_guardrails.py` |
+| 19 | [`19_advanced_rag.py`](19_advanced_rag.py) | Better retrieval: heading-aware chunks, a saved index, hybrid keyword + vector search, query rewriting, re-ranking, measuring hit rate | `uv run 19_advanced_rag.py` |
+| 20 | [`20_capstone.py`](20_capstone.py) | **Capstone:** a complete support app in the [`pedalwise/`](pedalwise/) package: streaming chat, the customer's own orders, hybrid search, staff-approved refunds, saved conversations, and offline tests in [`tests/`](tests/) | `uv run 20_capstone.py`, then open http://127.0.0.1:8001 and `/staff`; test with `uv run pytest` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -70,12 +74,20 @@ servicing prices. Because the shop is fictional, the model can't answer from
 training data, which makes it obvious when retrieval works. Tutorials 08 and
 09 also use a small fake order database defined in the scripts.
 
+Tutorial 17 adds two made-up documents for the same shop: `receipt.png`, a
+photo-style till receipt, and `warranty_card.pdf`, a one-page warranty card.
+Tutorial 19 adds `catalog.md`, a product catalog with part numbers like
+`PW-BRK-220`, which tutorials 06–10 also pick up.
+
 ## Files the tutorials create
 
 - `memory.sqlite*`: the saved conversation from Tutorial 07's `--chat`. Delete
   it, or run with `--chat --new`, to start over.
 - `long_term_memory.sqlite*`: facts Tutorial 15's `--chat` remembers about each
   user. List them with `--show --user NAME`; delete the file to forget everything.
+- `pedalwise.sqlite*`: the capstone's saved conversations. Delete it to start fresh.
+- `.rag_index/`: the saved search index from Tutorials 19 and 20, so documents
+  are embedded once. It rebuilds itself when the documents change; safe to delete.
 
 They're listed in `.gitignore` along with `.env`, so neither they nor your API
 key get committed.

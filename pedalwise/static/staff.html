@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pedalwise Staff</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --muted:#6b6b66; --card:#fff; --line:#e2e2dc; --ok:#1f8a4c; --no:#c2410c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ededea; --muted:#9a9a93; --card:#222220; --line:#33332f; --ok:#3fb06f; --no:#f07a45; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:720px; margin:0 auto; padding:16px; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  input, button { font:inherit; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--fg); padding:8px 12px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .row input { flex:1; min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px; }
+  .meta { color:var(--muted); font-size:13px; overflow-wrap:anywhere; }
+  .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .approve { background:var(--ok); color:#fff; border:0; }
+  .reject { background:var(--no); color:#fff; border:0; }
+  #status { color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Refunds waiting for approval</h1>
+  <div class="row">
+    <input id="token" type="password" placeholder="Staff token (printed when the server starts)">
+    <button id="save" type="button">Use token</button>
+  </div>
+  <div id="status">Enter the staff token to see the queue.</div>
+  <div id="queue"></div>
+</main>
+<script>
+const queue = document.getElementById("queue"), status = document.getElementById("status");
+let token = "", shownQueue = null;
+try { token = sessionStorage.getItem("staffToken") || ""; } catch {}
+document.getElementById("token").value = token;
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {...options,
+    headers: {"content-type": "application/json", "X-Staff-Token": token, ...(options.headers || {})}});
+  if (response.status === 401) throw new Error("Wrong or missing staff token");
+  if (!response.ok) throw new Error("Request failed: " + response.status);
+  return response.json();
+}
+
+async function refresh() {
+  if (!token) return;
+  try {
+    const items = await api("/api/staff/approvals");
+    // Rebuild only when the queue changed, so a note being typed isn't wiped.
+    const key = items.map(i => i.thread_id).join(",");
+    if (key === shownQueue) return;
+    shownQueue = key;
+    queue.replaceChildren();
+    status.textContent = items.length ? "" : "Nothing waiting. This list refreshes every 5 seconds.";
+    for (const item of items) {
+      const card = el("div", "card");
+      for (const action of item.actions) {
+        card.append(el("div", "", `${action.name}: order ${action.args.order_id}`));
+        if (action.args.reason) card.append(el("div", "meta", "Reason: " + action.args.reason));
+      }
+      card.append(el("div", "meta", `Customer: ${item.customer} · conversation ${item.thread_id}`));
+      const note = el("input"); note.placeholder = "Note to customer if rejecting (optional)";
+      const yes = el("button", "approve", "Approve"), no = el("button", "reject", "Reject");
+      const decide = async (approve) => {
+        yes.disabled = no.disabled = true;
+        try {
+          const result = await api(`/api/staff/approvals/${item.thread_id}`,
+            {method: "POST", body: JSON.stringify({approve, note: note.value || null})});
+          card.replaceChildren(el("div", "meta", "Done. Assistant replied: " + result.reply));
+        } catch (err) { status.textContent = err.message; yes.disabled = no.disabled = false; }
+      };
+      yes.onclick = () => decide(true); no.onclick = () => decide(false);
+      const actions = el("div", "actions"); actions.append(note, yes, no); card.append(actions);
+      queue.append(card);
+    }
+  } catch (err) { status.textContent = err.message; }
+}
+
+document.getElementById("save").addEventListener("click", () => {
+  token = document.getElementById("token").value.trim();
+  try { sessionStorage.setItem("staffToken", token); } catch {}
+  refresh();
+});
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

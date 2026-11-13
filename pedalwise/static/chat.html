@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pedalwise Support</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --muted:#6b6b66; --me:#dbe8ff; --bot:#fff; --line:#e2e2dc; --accent:#2f6fde; --warn:#fff4d6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ededea; --muted:#9a9a93; --me:#23344f; --bot:#222220; --line:#33332f; --warn:#3a3218; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:680px; margin:0 auto; padding:16px; display:flex; flex-direction:column; height:100dvh; }
+  header { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  h1 { font-size:18px; margin:0; flex:1; }
+  select, input, button { font:inherit; border-radius:10px; border:1px solid var(--line); background:var(--bot); color:var(--fg); padding:8px 12px; }
+  button.primary { background:var(--accent); color:#fff; border:0; }
+  button:disabled, input:disabled { opacity:.5; }
+  #log { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:8px; }
+  .msg { padding:8px 12px; border-radius:12px; max-width:85%; white-space:pre-wrap; border:1px solid var(--line); }
+  .me { background:var(--me); align-self:flex-end; }
+  .bot { background:var(--bot); align-self:flex-start; }
+  .status { color:var(--muted); font-size:13px; }
+  .waiting { background:var(--warn); border-radius:10px; padding:8px 12px; font-size:14px; }
+  form { display:flex; gap:8px; margin-top:12px; }
+  form input { flex:1; min-width:0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Pedalwise Bikes support</h1>
+    <label>Signed in as <select id="customer"></select></label>
+    <button id="new" type="button">New chat</button>
+  </header>
+  <div id="log"></div>
+  <form id="form">
+    <input id="text" autocomplete="off" placeholder="Ask about orders, stock, parts or policies" required>
+    <button class="primary" id="send">Send</button>
+  </form>
+</main>
+<script>
+const log = document.getElementById("log");
+const input = document.getElementById("text");
+const send = document.getElementById("send");
+const customerSelect = document.getElementById("customer");
+let threadId = null, polling = null;
+
+// textContent everywhere: model output is never inserted as HTML.
+function add(cls, text) {
+  const div = document.createElement("div");
+  div.className = cls; div.textContent = text;
+  log.appendChild(div); log.scrollTop = log.scrollHeight; return div;
+}
+function setBusy(busy) { input.disabled = busy; send.disabled = busy; if (!busy) input.focus(); }
+function reset() {
+  threadId = null; clearInterval(polling); log.replaceChildren(); setBusy(false);
+  add("status", 'Try: "What are my orders?", "Do PW-BRK-230 pads fit the City e-bike?" ' +
+                'or "Can I return my Trail 500?"');
+}
+
+async function loadCustomers() {
+  const list = await (await fetch("/api/customers")).json();
+  for (const c of list) customerSelect.add(new Option(`${c.name} (${c.email})`, c.email));
+}
+
+// After a refund request, check every few seconds whether staff have decided.
+function waitForApproval() {
+  const note = add("waiting", "A staff member is reviewing your refund request. " +
+                              "You can keep this page open.");
+  setBusy(true);
+  polling = setInterval(async () => {
+    const url = `/api/threads/${threadId}?customer_email=${encodeURIComponent(customerSelect.value)}`;
+    const response = await fetch(url);
+    if (!response.ok) return;
+    const thread = await response.json();
+    if (!thread.pending) {
+      clearInterval(polling); note.remove();
+      const last = thread.messages[thread.messages.length - 1];
+      if (last && last.role === "ai") add("msg bot", last.text);
+      setBusy(false);
+    }
+  }, 3000);
+}
+
+document.getElementById("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const message = input.value.trim(); if (!message) return;
+  input.value = ""; setBusy(true); add("msg me", message);
+  let reply = null, pending = false;
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({message, thread_id: threadId, customer_email: customerSelect.value})});
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      add("status", "⚠ " + (err.detail || response.status)); return;
+    }
+    // Read the Server-Sent Events stream (same parser as Tutorial 12).
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    while (true) {
+      const {value, done} = await reader.read(); if (done) break;
+      buffer += value;
+      const blocks = buffer.split("\n\n"); buffer = blocks.pop();
+      for (const block of blocks) {
+        let event = "message", data = "";
+        for (const line of block.split("\n")) {
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) data += line.slice(5).trim();
+        }
+        const payload = data ? JSON.parse(data) : {};
+        if (event === "thread") threadId = payload.thread_id;
+        else if (event === "token") { reply = reply || add("msg bot", ""); reply.textContent += payload.text; }
+        else if (event === "status") { add("status", payload.text); reply = null; }
+        else if (event === "approval_pending") pending = true;
+        else if (event === "error") add("status", "⚠ " + payload.message);
+      }
+    }
+  } catch (err) { add("status", "Connection error: " + err.message); }
+  finally { if (pending) waitForApproval(); else setBusy(false); }
+});
+
+document.getElementById("new").addEventListener("click", reset);
+customerSelect.addEventListener("change", reset);
+loadCustomers().then(reset);
+</script>
+</body>
+</html>
