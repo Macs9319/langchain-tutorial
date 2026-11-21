@@ -44,6 +44,12 @@ Run:
   uv run 27_auth.py --add-user you@example.com --name "You" --role staff
   uv run 27_auth.py --list                # accounts (never passwords)
   uv run 27_auth.py --audit               # who decided which refunds
+
+In Docker, run it inside the container, so it uses the container's database
+(the volume, or Postgres in the scaled stack), not your local file:
+  docker compose exec pedalwise python 27_auth.py --add-user you@example.com --role staff
+  docker compose exec pedalwise python 27_auth.py --list
+  docker compose -f compose.scale.yaml exec pedalwise python 27_auth.py --audit
 """
 
 import argparse

@@ -22,7 +22,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY pedalwise/ pedalwise/
 COPY data/ data/
-COPY 21_deployment.py ./
+# The server, and the account tool (Tutorial 27), so accounts can be made
+# inside the container, against the database it actually uses:
+#   docker compose exec pedalwise python 27_auth.py --add-user you@example.com --role staff
+COPY 21_deployment.py 27_auth.py ./
 
 # --- Stage 2: the image that runs -------------------------------------------
 FROM python:3.12-slim
