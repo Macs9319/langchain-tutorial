@@ -10,6 +10,9 @@ The tutorials use [LangChain](https://python.langchain.com) and
 default. Set `CHAT_MODEL` to run every tutorial on another provider, such as
 DeepSeek (Tutorial 23).
 
+**New here?** The [learning guide](GUIDE.md) suggests a route through the
+tutorials for what you want to build, and says where each topic is taught.
+
 ## Setup
 
 You need [uv](https://docs.astral.sh/uv/) and an OpenAI API key, or a DeepSeek
