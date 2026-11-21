@@ -73,6 +73,8 @@ class ScriptedModel(BaseChatModel):
             reply = AIMessage(f"Here's what I found: {last.text}")
         else:
             reply = AIMessage("Anything else?")
+        # Pretend usage, so token counting (Tutorial 22) can be tested.
+        reply.usage_metadata = {"input_tokens": 100, "output_tokens": 10, "total_tokens": 110}
         return ChatResult(generations=[ChatGeneration(message=reply)])
 
     async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):

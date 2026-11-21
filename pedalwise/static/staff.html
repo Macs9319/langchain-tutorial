@@ -21,6 +21,11 @@
   .approve { background:var(--ok); color:#fff; border:0; }
   .reject { background:var(--no); color:#fff; border:0; }
   #status { color:var(--muted); font-size:14px; }
+  h2 { font-size:16px; margin:24px 0 8px; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .stat b { display:block; font-size:20px; font-variant-numeric:tabular-nums; }
+  .stat span { color:var(--muted); font-size:13px; }
 </style>
 </head>
 <body>
@@ -32,6 +37,11 @@
   </div>
   <div id="status">Enter the staff token to see the queue.</div>
   <div id="queue"></div>
+  <h2>Last 24 hours</h2>
+  <div class="stats" id="stats"></div>
+  <div class="meta" id="tools"></div>
+  <h2>Recent thumbs-down</h2>
+  <div id="negative"><div class="meta">None yet.</div></div>
 </main>
 <script>
 const queue = document.getElementById("queue"), status = document.getElementById("status");
@@ -83,12 +93,46 @@ async function refresh() {
   } catch (err) { status.textContent = err.message; }
 }
 
+// Metrics (Tutorial 22): what customers experienced, from the runs table.
+async function refreshMetrics() {
+  if (!token) return;
+  let m;
+  try { m = await api("/api/staff/metrics?hours=24"); } catch { return; }
+  const ms = v => v == null ? "–" : v >= 1000 ? (v / 1000).toFixed(1) + " s" : v + " ms";
+  const stats = [
+    [m.runs, "runs"],
+    [(m.error_rate * 100).toFixed(1) + "%", "errors and timeouts"],
+    [ms(m.latency_ms.p50), "typical reply (p50)"],
+    [ms(m.latency_ms.p95), "slow replies (p95)"],
+    [m.model_calls_per_run, "model calls per run"],
+    [(m.tokens.input + m.tokens.output).toLocaleString(), "tokens"],
+    [`👍 ${m.feedback.up} · 👎 ${m.feedback.down}`, `${Math.round(m.feedback.rated_share * 100)}% of runs rated`],
+  ];
+  document.getElementById("stats").replaceChildren(...stats.map(([value, label]) => {
+    const card = el("div", "stat"); card.append(el("b", "", String(value)), el("span", "", label)); return card;
+  }));
+  const tools = Object.entries(m.tools).map(([name, n]) => `${name} ×${n}`).join(", ");
+  document.getElementById("tools").textContent = "Tools used: " + (tools || "none") +
+    (m.tool_errors ? ` · ${m.tool_errors} tool errors` : "");
+  const negative = document.getElementById("negative");
+  if (!m.negative_feedback.length) { negative.replaceChildren(el("div", "meta", "None yet.")); return; }
+  negative.replaceChildren(...m.negative_feedback.map(item => {
+    const card = el("div", "card");
+    card.append(el("div", "", "Q: " + (item.question || "(staff decision)")),
+                el("div", "meta", "A: " + (item.answer || "(no answer)")));
+    if (item.comment) card.append(el("div", "", "Customer said: " + item.comment));
+    card.append(el("div", "meta", `${item.created} UTC · run ${item.run_id}`));
+    return card;
+  }));
+}
+
 document.getElementById("save").addEventListener("click", () => {
   token = document.getElementById("token").value.trim();
   try { sessionStorage.setItem("staffToken", token); } catch {}
-  refresh();
+  refresh(); refreshMetrics();
 });
 refresh(); setInterval(refresh, 5000);
+refreshMetrics(); setInterval(refreshMetrics, 30000);
 </script>
 </body>
 </html>

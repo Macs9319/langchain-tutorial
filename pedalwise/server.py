@@ -7,6 +7,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
@@ -17,6 +18,8 @@ from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
+from langsmith import Client as LangSmithClient
+from langsmith.utils import tracing_is_enabled
 from pydantic import BaseModel, Field
 
 from .agent import build_agent
@@ -24,6 +27,7 @@ from .approvals import ApprovalQueue
 from .config import Settings
 from .knowledge import KnowledgeBase
 from .shop import DEMO_CUSTOMERS, Customer
+from .telemetry import RunRecorder, Telemetry
 from .tools import make_tools
 
 STATIC = Path(__file__).parent / "static"
@@ -42,6 +46,13 @@ class ChatRequest(BaseModel):
 class Decision(BaseModel):
     approve: bool
     note: str | None = Field(default=None, max_length=500)
+
+
+class Feedback(BaseModel):
+    run_id: uuid.UUID
+    customer_email: str
+    score: Literal[1, -1]  # thumbs up or down
+    comment: str | None = Field(default=None, max_length=1000)
 
 
 def create_app(settings: Settings | None = None, model: BaseChatModel | None = None,
@@ -66,6 +77,11 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
             app.state.agent = build_agent(primary, fallback, make_tools(kb), checkpointer)
             # Conversations waiting for staff, also in SQLite (21).
             app.state.pending = await ApprovalQueue.open(settings.db_path)
+            # One summary row per run, plus customer feedback (22).
+            app.state.telemetry = await Telemetry.open(settings.db_path)
+            purged = await app.state.telemetry.delete_older_than(settings.telemetry_retention_days)
+            if purged:
+                logger.info("Deleted old runs", extra={"runs": purged})
             if settings.staff_token_generated:
                 logger.warning("No STAFF_TOKEN set. Staff token for this run: %s",
                                settings.staff_token)
@@ -73,6 +89,7 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
                                         "model": settings.model})
             yield
             await app.state.pending.close()
+            await app.state.telemetry.close()
             logger.info("Shut down cleanly")
 
     # The interactive API docs help while developing; in production they just
@@ -97,6 +114,13 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
         # The owner travels with every call, so it's saved with every checkpoint.
         return {"configurable": {"thread_id": thread_id},
                 "metadata": {"customer": customer.email}}
+
+    def traced(config: dict, run_id: uuid.UUID, recorder: RunRecorder, name: str) -> dict:
+        """Add what observability needs to a run's config (22). The run_id
+        we choose becomes the trace's id in LangSmith, so feedback sent later
+        lands on the right trace. Tags and metadata make traces filterable."""
+        return {**config, "run_id": run_id, "run_name": name, "callbacks": [recorder],
+                "tags": [settings.environment, name]}
 
     async def owner_of(thread_id: str) -> str | None:
         snapshot = await app.state.agent.aget_state({"configurable": {"thread_id": thread_id}})
@@ -147,12 +171,17 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
     @app.post("/api/chat", response_class=EventSourceResponse)
     async def chat(prepared=Depends(chat_request)) -> AsyncIterator[ServerSentEvent]:
         request, customer, thread_id = prepared
+        run_id, recorder = uuid.uuid4(), RunRecorder()
+        answer, outcome = [], "ok"
         yield ServerSentEvent(event="thread", data={"thread_id": thread_id})
+        # The browser needs the run id to send feedback about this answer.
+        yield ServerSentEvent(event="run", data={"run_id": str(run_id)})
         inputs = {"messages": [{"role": "user", "content": request.message}]}
+        config = traced(config_for(thread_id, customer), run_id, recorder, "support-chat")
         try:
             async with asyncio.timeout(120):
                 async for mode, data in app.state.agent.astream(
-                        inputs, config_for(thread_id, customer), context=customer,
+                        inputs, config, context=customer,
                         stream_mode=["messages", "updates", "custom"]):
                     if mode == "messages":
                         chunk, meta = data
@@ -160,12 +189,14 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
                         # whole reply at once (AIMessage). The check accepts both.
                         if (meta.get("langgraph_node") == "model"
                                 and isinstance(chunk, AIMessage) and chunk.text):
+                            answer.append(chunk.text)
                             yield ServerSentEvent(event="token", data={"text": chunk.text})
                     elif mode == "custom":
                         yield ServerSentEvent(event="status", data={"text": str(data)})
                     elif mode == "updates" and "__interrupt__" in data:
                         actions = data["__interrupt__"][0].value["action_requests"]
                         await app.state.pending.add(thread_id, customer.email, actions)
+                        outcome = "approval"
                         logger.info("Refund waiting for staff", extra={"thread_id": thread_id})
                         yield ServerSentEvent(event="approval_pending", data={"actions": actions})
                     elif mode == "updates":
@@ -175,11 +206,38 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
                                     text = FRIENDLY.get(call["name"], "Working…")
                                     yield ServerSentEvent(event="status", data={"text": text})
         except TimeoutError:
+            outcome = "timeout"
             yield ServerSentEvent(event="error", data={"message": "That took too long."})
         except Exception:  # logged here, never shown to the customer
-            logger.exception("Chat failed", extra={"thread_id": thread_id})
+            outcome = "error"
+            logger.exception("Chat failed", extra={"thread_id": thread_id, "run_id": str(run_id)})
             yield ServerSentEvent(event="error", data={"message": "Something went wrong."})
+        # Recorded before "done". If the customer closes the page mid-answer,
+        # the stream is cancelled and the run isn't recorded: a known gap.
+        await app.state.telemetry.record(
+            str(run_id), thread_id, customer.email, "chat", outcome, recorder,
+            request.message, "".join(answer))
         yield ServerSentEvent(event="done", data={})
+
+    # -- feedback (Tutorial 22) ------------------------------------------------
+    @app.post("/api/feedback")
+    async def feedback(item: Feedback) -> dict:
+        customer = current_customer(item.customer_email)
+        run_id = str(item.run_id)
+        if await app.state.telemetry.owner(run_id) != customer.email:
+            raise HTTPException(404, "Unknown run")
+        await app.state.telemetry.add_feedback(run_id, item.score, item.comment)
+        logger.info("Feedback", extra={"run_id": run_id, "score": item.score})
+        if tracing_is_enabled():
+            # Attach it to the trace in LangSmith as well. The SDK call is
+            # blocking, so run it in a thread; a LangSmith outage must never
+            # break the customer's click, so failures are only logged.
+            try:
+                await asyncio.to_thread(LangSmithClient().create_feedback, run_id,
+                                        key="user_score", score=item.score, comment=item.comment)
+            except Exception as error:
+                logger.warning("Couldn't send feedback to LangSmith: %r", error)
+        return {"ok": True}
 
     @app.get("/api/threads/{thread_id}")
     async def thread(thread_id: str, customer_email: str) -> dict:
@@ -196,6 +254,12 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
     async def approvals() -> list[dict]:
         return await app.state.pending.all()
 
+    @app.get("/api/staff/metrics", dependencies=[Depends(require_staff)])
+    async def metrics(hours: int = 24) -> dict:
+        report = await app.state.telemetry.metrics(max(1, min(hours, 24 * 90)))
+        report["negative_feedback"] = await app.state.telemetry.negative_feedback(limit=10)
+        return report
+
     @app.post("/api/staff/approvals/{thread_id}", dependencies=[Depends(require_staff)])
     async def decide(thread_id: str, decision: Decision) -> dict:
         # Take it off the queue first so a double-click can't decide twice;
@@ -209,13 +273,21 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
         # An audit trail: who got what, and when, ends up in the logs.
         logger.info("Refund decided", extra={"thread_id": thread_id, "approved": decision.approve,
                                              "customer": customer.email})
+        run_id, recorder = uuid.uuid4(), RunRecorder()
+        config = traced(config_for(thread_id, customer), run_id, recorder, "staff-decision")
         try:
             result = await app.state.agent.ainvoke(
                 Command(resume={"decisions": [verdict] * len(item["actions"])}),
-                config_for(thread_id, customer), context=customer)
+                config, context=customer)
         except Exception:
             await app.state.pending.add(thread_id, item["customer"], item["actions"])
+            await app.state.telemetry.record(str(run_id), thread_id, customer.email,
+                                             "staff_decision", "error", recorder, None, None)
             raise
+        await app.state.telemetry.record(
+            str(run_id), thread_id, customer.email, "staff_decision",
+            "approval" if "__interrupt__" in result else "ok", recorder,
+            None, result["messages"][-1].text)
         if "__interrupt__" in result:  # the agent asked for another approval
             await app.state.pending.add(thread_id, customer.email,
                                         result["__interrupt__"][0].value["action_requests"])

@@ -38,6 +38,9 @@ class Settings:
     host: str = env("HOST", "127.0.0.1")
     port: int = field(default_factory=lambda: int(os.getenv("PORT", "8001")))
     log_level: str = env("LOG_LEVEL", "INFO")
+    # Runs keep customers' questions and answers; delete them after this long (22).
+    telemetry_retention_days: int = field(default_factory=lambda: int(
+        os.getenv("TELEMETRY_RETENTION_DAYS", "30")))
     # Secrets: repr=False keeps them out of logs and error messages that
     # print the settings object.
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""),
