@@ -20,13 +20,6 @@ class ApprovalQueue:
     def __init__(self, db: Database):
         self._db = db
 
-    async def setup(self) -> None:
-        await self._db.execute("""CREATE TABLE IF NOT EXISTS pending_approvals (
-            thread_id TEXT PRIMARY KEY,
-            customer  TEXT NOT NULL,
-            actions   TEXT NOT NULL,
-            created   TEXT NOT NULL)""")
-
     async def add(self, thread_id: str, customer: str, actions: list[dict]) -> None:
         await self._db.execute(
             "INSERT INTO pending_approvals (thread_id, customer, actions, created) "

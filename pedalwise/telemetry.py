@@ -81,35 +81,12 @@ class Telemetry:
 
     @classmethod
     async def open(cls, url: str) -> "Telemetry":
-        """Connect and set up, for scripts that only need telemetry (Tutorial 22)."""
-        telemetry = cls(await Database.connect(url))
-        await telemetry.setup()
-        return telemetry
-
-    async def setup(self) -> None:
-        for statement in ("""
-            CREATE TABLE IF NOT EXISTS runs (
-                run_id        TEXT PRIMARY KEY,
-                thread_id     TEXT NOT NULL,
-                customer      TEXT NOT NULL,
-                kind          TEXT NOT NULL,     -- chat or staff_decision
-                outcome       TEXT NOT NULL,     -- ok, approval, error, timeout
-                latency_ms    INTEGER NOT NULL,
-                model_calls   INTEGER NOT NULL,
-                input_tokens  INTEGER NOT NULL,
-                output_tokens INTEGER NOT NULL,
-                tools         TEXT NOT NULL,     -- JSON list of tool names
-                tool_errors   INTEGER NOT NULL,
-                question      TEXT,
-                answer        TEXT,
-                created       TEXT NOT NULL)""", """
-            CREATE TABLE IF NOT EXISTS feedback (
-                run_id  TEXT PRIMARY KEY REFERENCES runs(run_id),
-                score   INTEGER NOT NULL,        -- 1 thumbs up, -1 thumbs down
-                comment TEXT,
-                created TEXT NOT NULL)""",
-                "CREATE INDEX IF NOT EXISTS runs_created ON runs(created)"):
-            await self._db.execute(statement)
+        """Connect, for scripts that only need telemetry (Tutorial 22). Brings
+        the database's tables up to date first (Tutorial 28)."""
+        from .migrations import upgrade
+        db = await Database.connect(url)
+        await upgrade(db, log=lambda message: None)
+        return cls(db)
 
     async def record(self, run_id: str, thread_id: str, customer: str, kind: str, outcome: str,
                      recorder: RunRecorder, question: str | None, answer: str | None) -> None:

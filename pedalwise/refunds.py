@@ -18,13 +18,6 @@ class RefundLedger:
     def __init__(self, db: Database):
         self._db = db
 
-    async def setup(self) -> None:
-        await self._db.execute("""CREATE TABLE IF NOT EXISTS refunds (
-            order_id   TEXT PRIMARY KEY,
-            customer   TEXT NOT NULL,
-            amount_eur DOUBLE PRECISION NOT NULL,
-            created    TEXT NOT NULL)""")
-
     async def is_refunded(self, order_id: str) -> bool:
         return await self._db.fetchone("SELECT 1 FROM refunds WHERE order_id = ?",
                                        (order_id.strip().upper(),)) is not None

@@ -29,6 +29,20 @@ services:
       retries: 30
     restart: unless-stopped
 
+  # Schema migrations run once, before any copy starts (Tutorial 28). With
+  # several copies, migrating at startup would mean every copy racing to do
+  # it (the lock makes that safe, but slow and noisy), and copies running
+  # against a schema they weren't written for.
+  migrate:
+    build: .
+    command: ["python", "28_migrations.py", "--upgrade"]
+    environment:
+      DATABASE_URL: postgresql://pedalwise:${POSTGRES_PASSWORD:-pedalwise-local}@postgres:5432/pedalwise
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   pedalwise:
     build: .
     deploy:
@@ -47,9 +61,13 @@ services:
       # This stack is plain http on 127.0.0.1. With HTTPS in front (Caddy
       # does it automatically for a real domain), remove this line.
       COOKIE_SECURE: "false"
+      # The migrate service did it; refuse to start if the schema is behind.
+      MIGRATE_ON_START: "false"
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   caddy:

@@ -56,15 +56,6 @@ class Users:
     def __init__(self, db: Database):
         self._db = db
 
-    async def setup(self) -> None:
-        await self._db.execute("""CREATE TABLE IF NOT EXISTS users (
-            id            TEXT PRIMARY KEY,
-            email         TEXT NOT NULL UNIQUE,
-            name          TEXT NOT NULL,
-            role          TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            created       TEXT NOT NULL)""")
-
     async def add(self, email: str, name: str, role: str, password: str) -> User:
         if role not in ("customer", "staff"):
             raise ValueError("role must be customer or staff")
@@ -77,6 +68,32 @@ class Users:
             (user.id, user.email, name, role, _hasher.hash(password), now_text()))
         return user
 
+    async def set_password(self, email: str, password: str, sign_out: bool = True) -> bool:
+        """Change a password. By default this also ends the account's sessions,
+        so anyone who knew the old one is signed out. False if no such account."""
+        if len(password) < 12:
+            raise ValueError("passwords need at least 12 characters")
+        user = await self.get(email)
+        if user is None:
+            return False
+        await self._db.execute("UPDATE users SET password_hash = ? WHERE id = ?",
+                               (_hasher.hash(password), user.id))
+        if sign_out:
+            await self._db.execute("DELETE FROM sessions WHERE user_id = ?", (user.id,))
+        return True
+
+    async def set_disabled(self, email: str, disabled: bool) -> bool:
+        """Disable (or re-enable) an account. Disabling also ends all of its
+        sessions: signed out everywhere, at once. False if no such account."""
+        user = await self.get(email)
+        if user is None:
+            return False
+        await self._db.execute("UPDATE users SET disabled_at = ? WHERE id = ?",
+                               (now_text() if disabled else None, user.id))
+        if disabled:
+            await self._db.execute("DELETE FROM sessions WHERE user_id = ?", (user.id,))
+        return True
+
     async def get(self, email: str) -> User | None:
         row = await self._db.fetchone("SELECT id, email, name, role FROM users WHERE email = ?",
                                       (email.strip().lower(),))
@@ -85,13 +102,13 @@ class Users:
     async def check_password(self, email: str, password: str) -> User | None:
         """The user if the password is right; None for a wrong email or password alike."""
         row = await self._db.fetchone(
-            "SELECT id, email, name, role, password_hash FROM users WHERE email = ?",
+            "SELECT id, email, name, role, password_hash, disabled_at FROM users WHERE email = ?",
             (email.strip().lower(),))
         try:
             _hasher.verify(row[4] if row else _DUMMY_HASH, password)
         except (VerifyMismatchError, VerificationError, InvalidHashError):
             return None
-        if row is None:
+        if row is None or row[5] is not None:  # no such account, or disabled (Tutorial 28)
             return None
         if _hasher.check_needs_rehash(row[4]):  # settings got stronger since this was saved
             await self._db.execute("UPDATE users SET password_hash = ? WHERE id = ?",
@@ -102,13 +119,6 @@ class Users:
 class Sessions:
     def __init__(self, db: Database):
         self._db = db
-
-    async def setup(self) -> None:
-        await self._db.execute("""CREATE TABLE IF NOT EXISTS sessions (
-            token_hash TEXT PRIMARY KEY,
-            user_id    TEXT NOT NULL,
-            csrf_token TEXT NOT NULL,
-            expires    TEXT NOT NULL)""")
 
     async def create(self, user: User) -> tuple[str, str]:
         """A new session: (token for the cookie, CSRF token for the page)."""
@@ -123,7 +133,8 @@ class Sessions:
         """(user, csrf token) for a live session, or None."""
         row = await self._db.fetchone(
             "SELECT u.id, u.email, u.name, u.role, s.csrf_token FROM sessions s "
-            "JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires > ?",
+            "JOIN users u ON u.id = s.user_id "
+            "WHERE s.token_hash = ? AND s.expires > ? AND u.disabled_at IS NULL",
             (_digest(token), now_text()))
         return (User(*row[:4]), row[4]) if row else None
 
@@ -144,11 +155,6 @@ class LoginThrottle:
 
     def __init__(self, db: Database):
         self._db = db
-
-    async def setup(self) -> None:
-        await self._db.execute("""CREATE TABLE IF NOT EXISTS login_failures (
-            key     TEXT NOT NULL,
-            created TEXT NOT NULL)""")
 
     async def _count(self, key: str) -> int:
         row = await self._db.fetchone(
@@ -174,13 +180,6 @@ class AuditLog:
 
     def __init__(self, db: Database):
         self._db = db
-
-    async def setup(self) -> None:
-        await self._db.execute("""CREATE TABLE IF NOT EXISTS audit_log (
-            actor   TEXT NOT NULL,
-            action  TEXT NOT NULL,
-            detail  TEXT NOT NULL,
-            created TEXT NOT NULL)""")
 
     async def record(self, actor: str, action: str, **detail) -> None:
         await self._db.execute(

@@ -6,6 +6,7 @@ import pytest
 
 from pedalwise import shop
 from pedalwise.database import Database
+from pedalwise.migrations import upgrade
 from pedalwise.refunds import RefundLedger
 
 SAM = shop.DEMO_CUSTOMERS["sam@example.com"]
@@ -39,7 +40,7 @@ def test_the_database_pays_each_order_once(db_url):
     async def scenario():
         db = await Database.connect(db_url)
         ledger = RefundLedger(db)
-        await ledger.setup()
+        await upgrade(db, log=lambda message: None)
         results = await asyncio.gather(*(ledger.record("a1001", SAM.email, 899.0)
                                           for _ in range(20)))
         assert results.count(True) == 1

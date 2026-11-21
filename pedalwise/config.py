@@ -50,6 +50,11 @@ class Settings:
     host: str = env("HOST", "127.0.0.1")
     port: int = field(default_factory=lambda: int(os.getenv("PORT", "8001")))
     log_level: str = env("LOG_LEVEL", "INFO")
+    # Apply pending schema migrations at startup (Tutorial 28). Fine for one
+    # copy. With several, run them once as a separate step and set this to
+    # false: the copies then refuse to start against an out-of-date schema.
+    migrate_on_start: bool = field(default_factory=lambda: os.getenv(
+        "MIGRATE_ON_START", "true").lower() not in ("0", "false", "no"))
     # Runs keep customers' questions and answers; delete them after this long (22).
     telemetry_retention_days: int = field(default_factory=lambda: int(
         os.getenv("TELEMETRY_RETENTION_DAYS", "30")))

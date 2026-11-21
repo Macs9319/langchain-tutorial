@@ -30,6 +30,7 @@ from .auth import SESSION_DAYS, AuditLog, LoginThrottle, Sessions, User, Users
 from .config import Settings
 from .database import Database, is_postgres_url
 from .knowledge import KnowledgeBase
+from .migrations import LATEST, status, upgrade
 from .models import chat_model
 from .refunds import RefundLedger
 from .shop import Customer
@@ -130,17 +131,32 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
         app.state.sessions = Sessions(db)          # who is logged in (27)
         app.state.throttle = LoginThrottle(db)     # failed logins (27)
         app.state.audit = AuditLog(db)             # who did what (27)
+        # The tables come from migrations (Tutorial 28).
+        if settings.migrate_on_start:
+            await upgrade(db, log=logger.info)
+        schema = await status(db)
+        if schema["pending"]:
+            raise RuntimeError(
+                f"The database schema is at version {schema['version']}, but this code needs "
+                f"{LATEST}. Run the migrations first: python 28_migrations.py --upgrade")
+        for migration in schema["changed"]:
+            logger.warning("Migration %s was edited after it ran here; the database "
+                           "doesn't have the edit. Add a new migration instead.",
+                           migration.version)
+        if schema["unknown"]:
+            logger.warning("The database has migrations this code doesn't know: %s",
+                           schema["unknown"])
         async with db.schema_lock():
-            for store in (app.state.pending, app.state.ledger, app.state.telemetry,
-                          app.state.users, app.state.sessions, app.state.throttle,
-                          app.state.audit):
-                await store.setup()
             # Inside the lock, so two copies starting together can't both
             # create the same account.
             if settings.demo_password:
+                # Demo accounts always have the current demo password, so
+                # changing PEDALWISE_DEMO_PASSWORD takes effect on the next start.
                 for email, name, role in DEMO_ACCOUNTS:
                     if await app.state.users.get(email) is None:
                         await app.state.users.add(email, name, role, settings.demo_password)
+                    elif not await app.state.users.check_password(email, settings.demo_password):
+                        await app.state.users.set_password(email, settings.demo_password)
         await app.state.sessions.delete_expired()
         async with open_checkpointer(settings.db_url, db) as checkpointer:
             app.state.agent = build_agent(primary, fallback,

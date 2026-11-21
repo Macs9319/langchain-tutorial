@@ -81,6 +81,27 @@ class Database:
         return rows[0] if rows else None
 
     @asynccontextmanager
+    async def transaction(self) -> AsyncIterator["Transaction"]:
+        """Several statements that succeed or fail together (Tutorial 28).
+
+        Both databases can roll back table changes (CREATE, ALTER) as well as
+        data, so a migration that fails halfway leaves nothing half-done.
+        """
+        if self.postgres:
+            async with self._pool.connection() as conn, conn.transaction():
+                yield Transaction(conn.execute, self._sql)
+            return
+        # IMMEDIATE: take SQLite's write lock now, not at the first write, so
+        # two connections can't both read "not done yet" and then both do it.
+        await self._sqlite.execute("BEGIN IMMEDIATE")
+        try:
+            yield Transaction(self._sqlite.execute, self._sql)
+        except BaseException:
+            await self._sqlite.rollback()
+            raise
+        await self._sqlite.commit()
+
+    @asynccontextmanager
     async def schema_lock(self) -> AsyncIterator[None]:
         """Only one copy of the app creates tables at a time.
 
@@ -118,3 +139,17 @@ class Database:
             await self._pool.close()
         else:
             await self._sqlite.close()
+
+
+class Transaction:
+    """Runs statements inside Database.transaction()."""
+
+    def __init__(self, run, translate):
+        self._run, self._translate = run, translate
+
+    async def execute(self, sql: str, params: tuple = ()) -> None:
+        await self._run(self._translate(sql), params)
+
+    async def fetchone(self, sql: str, params: tuple = ()) -> tuple | None:
+        cursor = await self._run(self._translate(sql), params)
+        return await cursor.fetchone()

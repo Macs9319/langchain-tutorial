@@ -9,6 +9,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from pedalwise.agent import build_agent
 from pedalwise.database import Database
 from pedalwise.knowledge import KnowledgeBase
+from pedalwise.migrations import upgrade
 from pedalwise.refunds import RefundLedger
 from pedalwise.tools import make_tools
 
@@ -55,7 +56,7 @@ def run_custom(case, tmp_path):
     async def go():
         db = await Database.connect(str(tmp_path / f"{case.name[:8]}.sqlite"))
         ledger = RefundLedger(db)
-        await ledger.setup()
+        await upgrade(db, log=lambda message: None)
         kb = KnowledgeBase(ROOT / "data", tmp_path / "index", WordEmbeddings())
         agent = build_agent(ScriptedModel(), None, make_tools(kb, ledger), InMemorySaver())
         try:

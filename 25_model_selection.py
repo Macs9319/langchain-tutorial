@@ -66,6 +66,7 @@ from pedalwise import shop
 from pedalwise.agent import build_agent
 from pedalwise.config import Settings
 from pedalwise.database import Database
+from pedalwise.migrations import upgrade
 from pedalwise.knowledge import KnowledgeBase
 from pedalwise.models import API_KEY_VARS, chat_model, split_spec
 from pedalwise.refunds import RefundLedger
@@ -374,8 +375,9 @@ async def main(specs: list[str], repeats: int, max_seconds: float) -> None:
     kb = KnowledgeBase(settings.data_dir, settings.index_dir, embeddings)
     # A throwaway refund ledger: refunds are never approved during an eval,
     # but the tools need somewhere to check.
-    ledger = RefundLedger(await Database.connect(":memory:"))
-    await ledger.setup()
+    db = await Database.connect(":memory:")
+    await upgrade(db, log=lambda message: None)
+    ledger = RefundLedger(db)
     tools = make_tools(kb, ledger)
     judge_spec = os.getenv("JUDGE_MODEL", "openai:gpt-5-mini")
     judge = chat_model(judge_spec, max_tokens=2048).with_structured_output(Verdict)

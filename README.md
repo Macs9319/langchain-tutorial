@@ -38,6 +38,7 @@ Optional settings in `.env`:
 | `PEDALWISE_DEMO_PASSWORD` | none | 20-27 (creates the demo accounts `sam@`, `dana@` and `staff@example.com` with this password, 12+ characters) |
 | `STAFF_TOKEN` | none | 20-27 (optional token for scripts calling the staff API; 24+ characters in production) |
 | `COOKIE_SECURE` | on in production | 27 (`false` for a local stack on plain http) |
+| `MIGRATE_ON_START` | `true` | 28 (`false` when migrations run as a separate step, as in `compose.scale.yaml`) |
 | `PEDALWISE_ENV` | `development` | 21 (`production`: strict checks, JSON logs, no `/docs`) |
 | `HOST`, `PORT`, `LOG_LEVEL` | `127.0.0.1`, `8001`, `INFO` | 20, 21 |
 | `PEDALWISE_DB`, `PEDALWISE_INDEX_DIR` | files in this folder | 20, 21 (where data is saved) |
@@ -79,6 +80,7 @@ Optional settings in `.env`:
 | 25 | [`25_model_selection.py`](25_model_selection.py) | Choose the capstone's model on evidence: agent test cases that check behaviour, critical versus quality cases, repeated runs, cost per 1,000 messages from measured tokens, a speed budget, a written-down decision rule, harder multi-turn cases, importing Tutorial 22's thumbs-down cases, and checking the grader before blaming the model | `uv run 25_model_selection.py` |
 | 26 | [`26_scaling.py`](26_scaling.py) | Run several copies behind a load balancer: find state kept in one process (and the refund bug it hid), move it to Postgres behind a small SQLite/Postgres layer, let a primary key stop double refunds, start copies safely with a lock, Caddy in [`compose.scale.yaml`](compose.scale.yaml), and checking it from outside | `docker compose -f compose.scale.yaml up --build -d`, then `uv run 26_scaling.py` |
 | 27 | [`27_auth.py`](27_auth.py) | Real logins: Argon2id password hashes, server-side sessions in HttpOnly/SameSite/Secure cookies, CSRF tokens, the customer taken from the session (never the request), throttled guessing without revealing which emails exist, staff accounts and an audit log | `uv run 27_auth.py` (no API calls); `--add-user`, `--audit` |
+| 28 | [`28_migrations.py`](28_migrations.py) | Change tables that already hold data: numbered migrations recorded in the database, transactions, checksums for edited migrations, race-safe upgrades, a migrate step before the copies start, expand-then-contract, and the first feature that needed one (disabling accounts, which signs them out everywhere) | `uv run 28_migrations.py` (no API calls); `--status`, `--upgrade` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -107,7 +109,7 @@ Production
 
 Capstone
 11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests) ─► 21 deployment (Docker, CI) ─► 26 scaling out (Postgres, load balancer)
-18 + 21 ─────────────────► 27 real logins (sessions, CSRF, audit log)
+18 + 21 ─────────────────► 27 real logins (sessions, CSRF, audit log) ─► 28 schema migrations
                                                                     ├─► 22 observability ─► back to 10
                                                                     └─► 23 model providers (DeepSeek) ─► 25 choosing a model (with 10)
 ```
