@@ -28,17 +28,29 @@
   .feedback input { padding:4px 8px; font-size:13px; min-width:0; flex:1; }
   form { display:flex; gap:8px; margin-top:12px; }
   form input { flex:1; min-width:0; }
+  #login { flex-direction:column; max-width:360px; width:100%; margin:48px auto 0; }
+  #login p { margin:0; color:var(--muted); font-size:14px; }
+  #who { color:var(--muted); font-size:14px; }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
 <main>
   <header>
     <h1>Pedalwise Bikes support</h1>
-    <label>Signed in as <select id="customer"></select></label>
-    <button id="new" type="button">New chat</button>
+    <span id="who"></span>
+    <button id="new" type="button" hidden>New chat</button>
+    <button id="logout" type="button" hidden>Log out</button>
   </header>
-  <div id="log"></div>
-  <form id="form">
+  <form id="login" hidden>
+    <p>Log in to see your orders and chat with support.</p>
+    <input id="email" type="email" autocomplete="username" placeholder="Email" required>
+    <input id="password" type="password" autocomplete="current-password" placeholder="Password" required>
+    <button class="primary">Log in</button>
+    <p id="login-error" role="alert"></p>
+  </form>
+  <div id="log" hidden></div>
+  <form id="form" hidden>
     <input id="text" autocomplete="off" placeholder="Ask about orders, stock, parts or policies" required>
     <button class="primary" id="send">Send</button>
   </form>
@@ -47,8 +59,56 @@
 const log = document.getElementById("log");
 const input = document.getElementById("text");
 const send = document.getElementById("send");
-const customerSelect = document.getElementById("customer");
 let threadId = null, polling = null;
+// The CSRF token from the login response (Tutorial 27). The session cookie
+// itself is HttpOnly, so this script never sees it; it sends this token in a
+// header instead, which another site can't do.
+let csrf = null;
+
+function post(path, body) {
+  return fetch(path, {method: "POST", body: JSON.stringify(body),
+    headers: {"content-type": "application/json", "X-CSRF-Token": csrf}});
+}
+
+function showChat(user) {
+  csrf = user.csrf_token;
+  document.getElementById("who").textContent = `Logged in as ${user.name}`;
+  for (const id of ["log", "form", "new", "logout"]) document.getElementById(id).hidden = false;
+  document.getElementById("login").hidden = true;
+  if (user.role === "staff") add("status", "This is a staff account: the staff page is at /staff.");
+  reset();
+}
+
+function showLogin(message = "") {
+  csrf = null; clearInterval(polling);
+  document.getElementById("who").textContent = "";
+  for (const id of ["log", "form", "new", "logout"]) document.getElementById(id).hidden = true;
+  document.getElementById("login").hidden = false;
+  document.getElementById("login-error").textContent = message;
+  document.getElementById("email").focus();
+}
+
+// Already logged in (the cookie survives reloads)? Otherwise show the form.
+async function checkSession() {
+  const response = await fetch("/api/me");
+  if (response.ok) showChat(await response.json()); else showLogin();
+}
+
+document.getElementById("login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const response = await fetch("/api/login", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({email: document.getElementById("email").value,
+                          password: document.getElementById("password").value})});
+  document.getElementById("password").value = "";
+  if (response.ok) showChat(await response.json());
+  else showLogin((await response.json().catch(() => ({}))).detail || "Couldn't log in.");
+});
+
+document.getElementById("logout").addEventListener("click", async () => {
+  await post("/api/logout", {});
+  showLogin();
+});
 
 // textContent everywhere: model output is never inserted as HTML.
 function add(cls, text) {
@@ -63,10 +123,6 @@ function reset() {
                 'or "Can I return my Trail 500?"');
 }
 
-async function loadCustomers() {
-  const list = await (await fetch("/api/customers")).json();
-  for (const c of list) customerSelect.add(new Option(`${c.name} (${c.email})`, c.email));
-}
 
 // Thumbs up/down under an answer (Tutorial 22). The run id ties the vote to
 // exactly this answer, and to its trace in LangSmith if tracing is on.
@@ -78,9 +134,7 @@ function addFeedback(runId) {
   down.textContent = "👎"; down.setAttribute("aria-label", "Not helpful");
   const thanks = document.createElement("span");
   async function vote(score, comment = null) {
-    const response = await fetch("/api/feedback", {
-      method: "POST", headers: {"content-type": "application/json"},
-      body: JSON.stringify({run_id: runId, customer_email: customerSelect.value, score, comment})});
+    const response = await post("/api/feedback", {run_id: runId, score, comment});
     up.setAttribute("aria-pressed", score === 1); down.setAttribute("aria-pressed", score === -1);
     thanks.textContent = response.ok ? "Thanks for the feedback." : "Couldn't save that.";
   }
@@ -106,8 +160,7 @@ function waitForApproval() {
                               "You can keep this page open.");
   setBusy(true);
   polling = setInterval(async () => {
-    const url = `/api/threads/${threadId}?customer_email=${encodeURIComponent(customerSelect.value)}`;
-    const response = await fetch(url);
+    const response = await fetch(`/api/threads/${threadId}`);
     if (!response.ok) return;
     const thread = await response.json();
     if (!thread.pending) {
@@ -125,9 +178,8 @@ document.getElementById("form").addEventListener("submit", async (e) => {
   input.value = ""; setBusy(true); add("msg me", message);
   let reply = null, pending = false, runId = null, answered = false;
   try {
-    const response = await fetch("/api/chat", {
-      method: "POST", headers: {"content-type": "application/json"},
-      body: JSON.stringify({message, thread_id: threadId, customer_email: customerSelect.value})});
+    const response = await post("/api/chat", {message, thread_id: threadId});
+    if (response.status === 401) { showLogin("Your session ended. Please log in again."); return; }
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
       add("status", "⚠ " + (err.detail || response.status)); return;
@@ -162,8 +214,7 @@ document.getElementById("form").addEventListener("submit", async (e) => {
 });
 
 document.getElementById("new").addEventListener("click", reset);
-customerSelect.addEventListener("change", reset);
-loadCustomers().then(reset);
+checkSession();
 </script>
 </body>
 </html>

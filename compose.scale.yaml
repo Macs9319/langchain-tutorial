@@ -39,6 +39,14 @@ services:
       DATABASE_URL: postgresql://pedalwise:${POSTGRES_PASSWORD:-pedalwise-local}@postgres:5432/pedalwise
       # The search index is a cache each copy builds for itself on start.
       PEDALWISE_INDEX_DIR: /tmp/rag_index
+      # Logins (Tutorial 27): demo accounts' password, from your .env.
+      PEDALWISE_DEMO_PASSWORD: ${PEDALWISE_DEMO_PASSWORD:-}
+      # Only Caddy can reach these copies, so trust its X-Forwarded-For: the
+      # login throttle must see each visitor's address, not Caddy's.
+      FORWARDED_ALLOW_IPS: "*"
+      # This stack is plain http on 127.0.0.1. With HTTPS in front (Caddy
+      # does it automatically for a real domain), remove this line.
+      COOKIE_SECURE: "false"
     depends_on:
       postgres:
         condition: service_healthy

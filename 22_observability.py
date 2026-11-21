@@ -59,6 +59,7 @@ Run:
 import argparse
 import asyncio
 import json
+import secrets
 import tempfile
 from pathlib import Path
 
@@ -163,16 +164,21 @@ def demo() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         # A fresh database so the report shows only this demo. The search
         # index is the shared one, so documents aren't embedded again.
-        settings = Settings(db_path=str(Path(tmp) / "demo.sqlite"), database_url="")
+        # Demo accounts with a password for this run only (Tutorial 27).
+        password = secrets.token_urlsafe(12)
+        settings = Settings(db_path=str(Path(tmp) / "demo.sqlite"), database_url="",
+                            demo_password=password, staff_token=secrets.token_urlsafe(24))
         staff = {"X-Staff-Token": settings.staff_token}
         with TestClient(create_app(settings)) as client:
+            login = client.post("/api/login", json={"email": "sam@example.com",
+                                                    "password": password}).json()
+            client.headers["X-CSRF-Token"] = login["csrf_token"]
             runs = {}
             for question in ["What time does the Porto shop open on Saturday?",
                              "Do you sell skateboards?",
                              "What are my orders?"]:
                 print(f"\nCustomer: {question}")
-                response = client.post("/api/chat", json={
-                    "message": question, "customer_email": "sam@example.com"})
+                response = client.post("/api/chat", json={"message": question})
                 events = read_events(response.text)
                 runs[question] = next(d["run_id"] for e, d in events if e == "run")
                 answer = "".join(d["text"] for e, d in events if e == "token")
@@ -181,8 +187,7 @@ def demo() -> None:
 
             # The customer votes, the way the 👍 / 👎 buttons do.
             vote = lambda q, score, comment=None: client.post("/api/feedback", json={
-                "run_id": runs[q], "customer_email": "sam@example.com",
-                "score": score, "comment": comment})
+                "run_id": runs[q], "score": score, "comment": comment})
             vote("What time does the Porto shop open on Saturday?", 1)
             vote("Do you sell skateboards?", -1, "I just wanted a yes or no")
             print("\nVotes: 👍 on the opening hours, 👎 on skateboards (with a comment).")

@@ -10,8 +10,8 @@ from pedalwise.config import Settings
 from pedalwise.logs import JsonFormatter
 from pedalwise.server import create_app
 
-from .conftest import (STAFF_TOKEN, ScriptedModel, WordEmbeddings, read_events, refunds,
-                       make_settings)
+from .conftest import (STAFF_TOKEN, ScriptedModel, WordEmbeddings, login, make_settings,
+                       read_events, refunds)
 
 STAFF = {"X-Staff-Token": STAFF_TOKEN}
 GOOD_TOKEN = "x" * 32
@@ -39,8 +39,8 @@ def test_api_docs_only_in_development(client, tmp_path):
 
 def test_pending_refund_survives_a_restart(tmp_path, db_url):
     with TestClient(make_app(tmp_path, db_url)) as first:
-        response = first.post("/api/chat", json={"message": "Refund order A1001 please",
-                                                 "customer_email": "sam@example.com"})
+        login(first, "sam@example.com")
+        response = first.post("/api/chat", json={"message": "Refund order A1001 please"})
         thread_id = read_events(response)[0][1]["thread_id"]
     # A new process, same database: like a container being replaced.
     with TestClient(make_app(tmp_path, db_url)) as second:
@@ -62,7 +62,7 @@ def test_settings_problems():
 
     prod = dict(openai, environment="production", openai_api_key="sk-test")
     assert Settings(**prod, staff_token=GOOD_TOKEN).problems() == []
-    assert Settings(**prod, staff_token="").problems() == ["STAFF_TOKEN must be set in production"]
+    assert Settings(**prod, staff_token="").problems() == []  # optional: people log in (27)
     assert "at least 24" in Settings(**prod, staff_token="short").problems()[0]
     assert Settings(**openai, environment="prod", openai_api_key="sk-test").problems()
 
@@ -72,7 +72,6 @@ def test_settings_read_the_environment_when_created(monkeypatch):
     monkeypatch.setenv("STAFF_TOKEN", GOOD_TOKEN)
     settings = Settings()
     assert settings.port == 9000 and settings.staff_token == GOOD_TOKEN
-    assert not settings.staff_token_generated
     assert GOOD_TOKEN not in repr(settings)  # secrets stay out of logs
 
 

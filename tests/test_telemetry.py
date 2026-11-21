@@ -2,14 +2,15 @@
 
 import uuid
 
-from .conftest import STAFF_TOKEN, read_events
+from .conftest import STAFF_TOKEN, login, read_events
 
 SAM, DANA = "sam@example.com", "dana@example.com"
 STAFF = {"X-Staff-Token": STAFF_TOKEN}
 
 
 def ask(client, message, customer=SAM):
-    response = client.post("/api/chat", json={"message": message, "customer_email": customer})
+    login(client, customer)
+    response = client.post("/api/chat", json={"message": message})
     events = read_events(response)
     run_id = next(data["run_id"] for event, data in events if event == "run")
     return run_id, events
@@ -42,7 +43,7 @@ def test_refunds_record_the_approval_and_the_staff_decision(client):
 
 def test_feedback_is_saved_and_can_be_changed(client):
     run_id, _ = ask(client, "Do you sell skateboards?")
-    vote = {"run_id": run_id, "customer_email": SAM}
+    vote = {"run_id": run_id}
     assert client.post("/api/feedback", json={**vote, "score": 1}).status_code == 200
     assert metrics(client)["feedback"] == {"up": 1, "down": 0, "rated_share": 1.0}
     client.post("/api/feedback", json={**vote, "score": -1, "comment": "Didn't answer"})
@@ -55,11 +56,13 @@ def test_feedback_is_saved_and_can_be_changed(client):
 
 def test_feedback_only_on_your_own_runs(client):
     run_id, _ = ask(client, "What are my orders?")
-    stranger = {"run_id": run_id, "customer_email": DANA, "score": -1}
+    login(client, DANA)
+    stranger = {"run_id": run_id, "score": -1}
     assert client.post("/api/feedback", json=stranger).status_code == 404
-    unknown = {"run_id": str(uuid.uuid4()), "customer_email": SAM, "score": 1}
+    login(client, SAM)
+    unknown = {"run_id": str(uuid.uuid4()), "score": 1}
     assert client.post("/api/feedback", json=unknown).status_code == 404
-    bad_score = {"run_id": run_id, "customer_email": SAM, "score": 5}
+    bad_score = {"run_id": run_id, "score": 5}
     assert client.post("/api/feedback", json=bad_score).status_code == 422
 
 

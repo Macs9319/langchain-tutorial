@@ -35,7 +35,9 @@ Optional settings in `.env`:
 | `JUDGE_MODEL` | same as `CHAT_MODEL` | 10 (the grading model; `provider:model`), 25 (default `openai:gpt-5-mini`) |
 | `FALLBACK_MODEL` | `gpt-5-nano` | 16, 20-22 (the backup model; `provider:model`, or `none`) |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | all (see Tutorial 10) |
-| `STAFF_TOKEN` | random each run | 20, 21 (required, 24+ characters, in production) |
+| `PEDALWISE_DEMO_PASSWORD` | none | 20-27 (creates the demo accounts `sam@`, `dana@` and `staff@example.com` with this password, 12+ characters) |
+| `STAFF_TOKEN` | none | 20-27 (optional token for scripts calling the staff API; 24+ characters in production) |
+| `COOKIE_SECURE` | on in production | 27 (`false` for a local stack on plain http) |
 | `PEDALWISE_ENV` | `development` | 21 (`production`: strict checks, JSON logs, no `/docs`) |
 | `HOST`, `PORT`, `LOG_LEVEL` | `127.0.0.1`, `8001`, `INFO` | 20, 21 |
 | `PEDALWISE_DB`, `PEDALWISE_INDEX_DIR` | files in this folder | 20, 21 (where data is saved) |
@@ -69,13 +71,14 @@ Optional settings in `.env`:
 | 17 | [`17_images_and_pdfs.py`](17_images_and_pdfs.py) | Send images and PDFs to the model: describe photos, extract receipt data, question a PDF, give an agent an uploaded photo | `uv run 17_images_and_pdfs.py` |
 | 18 | [`18_guardrails.py`](18_guardrails.py) | Defend against prompt injection in layers: rules enforced in code, marking untrusted text, screening inputs and tool results, checking outputs | `uv run 18_guardrails.py` |
 | 19 | [`19_advanced_rag.py`](19_advanced_rag.py) | Better retrieval: heading-aware chunks, a saved index, hybrid keyword + vector search, query rewriting, re-ranking, measuring hit rate | `uv run 19_advanced_rag.py` |
-| 20 | [`20_capstone.py`](20_capstone.py) | **Capstone:** a complete support app in the [`pedalwise/`](pedalwise/) package: streaming chat, the customer's own orders, hybrid search, staff-approved refunds, saved conversations, and offline tests in [`tests/`](tests/) | `uv run 20_capstone.py`, then open http://127.0.0.1:8001 and `/staff`; test with `uv run pytest` |
+| 20 | [`20_capstone.py`](20_capstone.py) | **Capstone:** a complete support app in the [`pedalwise/`](pedalwise/) package: streaming chat, the customer's own orders, hybrid search, staff-approved refunds, saved conversations, and offline tests in [`tests/`](tests/) | set `PEDALWISE_DEMO_PASSWORD`, `uv run 20_capstone.py`, then log in at http://127.0.0.1:8001 and `/staff`; test with `uv run pytest` |
 | 21 | [`21_deployment.py`](21_deployment.py) | Deploy the capstone: settings from the environment, failing fast on bad config, a [`Dockerfile`](Dockerfile) and [`compose.yaml`](compose.yaml), state on a volume, health checks, JSON logs, graceful shutdown, smoke tests, and [CI](.github/workflows/ci.yml) | `docker compose up --build`, then `uv run 21_deployment.py --check http://127.0.0.1:8001` |
 | 22 | [`22_observability.py`](22_observability.py) | See what the deployed agent does: run ids, a callback that counts model calls, tokens and tools, 👍/👎 feedback tied to each answer, staff metrics (p50/p95, error rate), optional LangSmith traces, and turning complaints into eval cases | `uv run 22_observability.py`; `--report` for the app's numbers |
 | 23 | [`23_model_providers.py`](23_model_providers.py) | Add DeepSeek: `init_chat_model` and `provider:model` settings, comparing providers on answers, structured output and tool calls, DeepSeek's thinking mode (and sending its reasoning back), keyword-only search without embeddings, falling back across providers | `uv run 23_model_providers.py` |
 | 24 | [`24_text_to_sql.py`](24_text_to_sql.py) | Answer questions from a database: an agent with schema and query tools, guardrails enforced by SQLite itself (read-only, an authorizer for tables, columns and functions, a time limit, a row cap), self-correcting queries, and evaluating by comparing result rows | `uv run 24_text_to_sql.py`; `--guardrails` (no API calls), `--eval` |
 | 25 | [`25_model_selection.py`](25_model_selection.py) | Choose the capstone's model on evidence: agent test cases that check behaviour, critical versus quality cases, repeated runs, cost per 1,000 messages from measured tokens, a speed budget, a written-down decision rule, harder multi-turn cases, importing Tutorial 22's thumbs-down cases, and checking the grader before blaming the model | `uv run 25_model_selection.py` |
 | 26 | [`26_scaling.py`](26_scaling.py) | Run several copies behind a load balancer: find state kept in one process (and the refund bug it hid), move it to Postgres behind a small SQLite/Postgres layer, let a primary key stop double refunds, start copies safely with a lock, Caddy in [`compose.scale.yaml`](compose.scale.yaml), and checking it from outside | `docker compose -f compose.scale.yaml up --build -d`, then `uv run 26_scaling.py` |
+| 27 | [`27_auth.py`](27_auth.py) | Real logins: Argon2id password hashes, server-side sessions in HttpOnly/SameSite/Secure cookies, CSRF tokens, the customer taken from the session (never the request), throttled guessing without revealing which emails exist, staff accounts and an audit log | `uv run 27_auth.py` (no API calls); `--add-user`, `--audit` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -104,6 +107,7 @@ Production
 
 Capstone
 11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests) ─► 21 deployment (Docker, CI) ─► 26 scaling out (Postgres, load balancer)
+18 + 21 ─────────────────► 27 real logins (sessions, CSRF, audit log)
                                                                     ├─► 22 observability ─► back to 10
                                                                     └─► 23 model providers (DeepSeek) ─► 25 choosing a model (with 10)
 ```

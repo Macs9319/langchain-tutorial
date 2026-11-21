@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from langchain_core.embeddings import Embeddings
@@ -26,12 +26,13 @@ from pydantic import BaseModel, Field
 
 from .agent import build_agent
 from .approvals import ApprovalQueue
+from .auth import SESSION_DAYS, AuditLog, LoginThrottle, Sessions, User, Users
 from .config import Settings
 from .database import Database, is_postgres_url
 from .knowledge import KnowledgeBase
 from .models import chat_model
 from .refunds import RefundLedger
-from .shop import DEMO_CUSTOMERS, Customer
+from .shop import Customer
 from .telemetry import RunRecorder, Telemetry
 from .tools import make_tools
 
@@ -44,10 +45,23 @@ FRIENDLY = {"search_policies": "Looking that up…", "my_orders": "Checking your
             "request_refund": "Requesting a refund…"}
 
 
+SESSION_COOKIE = "pedalwise_session"
+# Created at startup when PEDALWISE_DEMO_PASSWORD is set (Tutorial 27).
+DEMO_ACCOUNTS = [("sam@example.com", "Sam", "customer"),
+                 ("dana@example.com", "Dana", "customer"),
+                 ("staff@example.com", "Alex (staff)", "staff")]
+
+
+# No customer_email anywhere: who the customer is comes from their login
+# session, never from what the browser says (Tutorial 27).
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
-    customer_email: str
     thread_id: str | None = None
+
+
+class Login(BaseModel):
+    email: str = Field(max_length=200)
+    password: str = Field(max_length=200)
 
 
 class Decision(BaseModel):
@@ -57,7 +71,6 @@ class Decision(BaseModel):
 
 class Feedback(BaseModel):
     run_id: uuid.UUID
-    customer_email: str
     score: Literal[1, -1]  # thumbs up or down
     comment: str | None = Field(default=None, max_length=1000)
 
@@ -113,18 +126,28 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
         app.state.pending = ApprovalQueue(db)      # refunds waiting for staff (21)
         app.state.ledger = RefundLedger(db)        # refunds paid, once each (26)
         app.state.telemetry = Telemetry(db)        # runs and feedback (22)
+        app.state.users = Users(db)                # accounts (27)
+        app.state.sessions = Sessions(db)          # who is logged in (27)
+        app.state.throttle = LoginThrottle(db)     # failed logins (27)
+        app.state.audit = AuditLog(db)             # who did what (27)
         async with db.schema_lock():
-            for store in (app.state.pending, app.state.ledger, app.state.telemetry):
+            for store in (app.state.pending, app.state.ledger, app.state.telemetry,
+                          app.state.users, app.state.sessions, app.state.throttle,
+                          app.state.audit):
                 await store.setup()
+            # Inside the lock, so two copies starting together can't both
+            # create the same account.
+            if settings.demo_password:
+                for email, name, role in DEMO_ACCOUNTS:
+                    if await app.state.users.get(email) is None:
+                        await app.state.users.add(email, name, role, settings.demo_password)
+        await app.state.sessions.delete_expired()
         async with open_checkpointer(settings.db_url, db) as checkpointer:
             app.state.agent = build_agent(primary, fallback,
                                           make_tools(kb, app.state.ledger), checkpointer)
             purged = await app.state.telemetry.delete_older_than(settings.telemetry_retention_days)
             if purged:
                 logger.info("Deleted old runs", extra={"runs": purged})
-            if settings.staff_token_generated:
-                logger.warning("No STAFF_TOKEN set. Staff token for this run: %s",
-                               settings.staff_token)
             logger.info("Ready", extra={"environment": settings.environment,
                                         "model": settings.model, "replica": REPLICA,
                                         "database": "postgres" if db.postgres else "sqlite"})
@@ -147,16 +170,37 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
         return response
 
     # -- dependencies: checks that run before an endpoint does --------------
-    def current_customer(email: str) -> Customer:
-        # A real app would read this from a login session, not trust the client.
-        customer = DEMO_CUSTOMERS.get(email.strip().lower())
-        if customer is None:
-            raise HTTPException(401, "Unknown customer")
-        return customer
+    async def logged_in(request: Request) -> User:
+        """The user of this request's session, or 401.
 
-    def require_staff(x_staff_token: str = Header(default="")) -> None:
-        if not secrets.compare_digest(x_staff_token, settings.staff_token):
-            raise HTTPException(401, "Staff token required")
+        For anything but GET, the request must also carry the session's CSRF
+        token in a header. A page on another site can make the browser send
+        our cookie, but it can't read the token, so it can't forge actions.
+        """
+        token = request.cookies.get(SESSION_COOKIE)
+        found = await app.state.sessions.get(token) if token else None
+        if found is None:
+            raise HTTPException(401, "Please log in")
+        user, csrf = found
+        if request.method not in ("GET", "HEAD") and not secrets.compare_digest(
+                request.headers.get("x-csrf-token", ""), csrf):
+            raise HTTPException(403, "Missing or wrong CSRF token")
+        return user
+
+    async def current_customer(user: User = Depends(logged_in)) -> Customer:
+        if user.role != "customer":
+            raise HTTPException(403, "Customers only")
+        return Customer(user.email, user.name)
+
+    async def require_staff(request: Request, x_staff_token: str = Header(default="")) -> str:
+        """Who is acting: a staff member's email, or "api-token" for scripts."""
+        if settings.staff_token and x_staff_token and secrets.compare_digest(
+                x_staff_token, settings.staff_token):
+            return "api-token"
+        user = await logged_in(request)
+        if user.role != "staff":
+            raise HTTPException(403, "Staff only")
+        return user.email
 
     def config_for(thread_id: str, customer: Customer) -> dict:
         # The owner travels with every call, so it's saved with every checkpoint.
@@ -174,8 +218,8 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
         snapshot = await app.state.agent.aget_state({"configurable": {"thread_id": thread_id}})
         return snapshot.metadata.get("customer") if snapshot.metadata else None
 
-    async def chat_request(request: ChatRequest) -> tuple[ChatRequest, Customer, str]:
-        customer = current_customer(request.customer_email)
+    async def chat_request(request: ChatRequest, customer: Customer = Depends(current_customer)
+                           ) -> tuple[ChatRequest, Customer, str]:
         if request.thread_id:
             # Someone else's conversation looks exactly like a missing one.
             if await owner_of(request.thread_id) != customer.email:
@@ -211,9 +255,41 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
     async def staff_page() -> FileResponse:
         return FileResponse(STATIC / "staff.html")
 
-    @app.get("/api/customers")
-    async def customers() -> list[dict]:
-        return [{"email": c.email, "name": c.name} for c in DEMO_CUSTOMERS.values()]
+    # -- logging in (Tutorial 27) -----------------------------------------------
+    @app.post("/api/login")
+    async def login(body: Login, request: Request, response: Response) -> dict:
+        email = body.email.strip().lower()
+        ip = request.client.host if request.client else "unknown"
+        if await app.state.throttle.blocked(email, ip):
+            raise HTTPException(429, "Too many failed logins. Try again in 15 minutes.")
+        user = await app.state.users.check_password(email, body.password)
+        if user is None:
+            await app.state.throttle.failed(email, ip)
+            logger.warning("Failed login", extra={"email": email, "ip": ip})
+            # The same answer whether the email exists or not, so this can't
+            # be used to find out who has an account.
+            raise HTTPException(401, "Wrong email or password")
+        await app.state.throttle.succeeded(email)
+        token, csrf = await app.state.sessions.create(user)
+        response.set_cookie(
+            SESSION_COOKIE, token, max_age=SESSION_DAYS * 86400, path="/",
+            httponly=True,                   # page scripts can't read it, so XSS can't steal it
+            samesite="lax",                  # not sent with other sites' form posts
+            secure=settings.secure_cookies)  # HTTPS only, in production
+        logger.info("Logged in", extra={"email": email, "role": user.role})
+        return {"email": user.email, "name": user.name, "role": user.role, "csrf_token": csrf}
+
+    @app.get("/api/me")
+    async def me(request: Request, user: User = Depends(logged_in)) -> dict:
+        _, csrf = await app.state.sessions.get(request.cookies[SESSION_COOKIE])
+        return {"email": user.email, "name": user.name, "role": user.role, "csrf_token": csrf}
+
+    @app.post("/api/logout")
+    async def logout(request: Request, response: Response) -> dict:
+        if token := request.cookies.get(SESSION_COOKIE):
+            await app.state.sessions.delete(token)  # gone from the database: really logged out
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        return {"ok": True}
 
     # -- customer chat (Tutorials 11 and 12) ----------------------------------
     @app.post("/api/chat", response_class=EventSourceResponse)
@@ -269,8 +345,7 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
 
     # -- feedback (Tutorial 22) ------------------------------------------------
     @app.post("/api/feedback")
-    async def feedback(item: Feedback) -> dict:
-        customer = current_customer(item.customer_email)
+    async def feedback(item: Feedback, customer: Customer = Depends(current_customer)) -> dict:
         run_id = str(item.run_id)
         if await app.state.telemetry.owner(run_id) != customer.email:
             raise HTTPException(404, "Unknown run")
@@ -288,8 +363,7 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
         return {"ok": True}
 
     @app.get("/api/threads/{thread_id}")
-    async def thread(thread_id: str, customer_email: str) -> dict:
-        customer = current_customer(customer_email)
+    async def thread(thread_id: str, customer: Customer = Depends(current_customer)) -> dict:
         if await owner_of(thread_id) != customer.email:
             raise HTTPException(404, "Unknown conversation")
         snapshot = await app.state.agent.aget_state({"configurable": {"thread_id": thread_id}})
@@ -306,25 +380,35 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
     async def refunds() -> list[dict]:
         return await app.state.ledger.all()
 
+    @app.get("/api/staff/audit", dependencies=[Depends(require_staff)])
+    async def audit() -> list[dict]:
+        return await app.state.audit.recent()
+
     @app.get("/api/staff/metrics", dependencies=[Depends(require_staff)])
     async def metrics(hours: int = 24) -> dict:
         report = await app.state.telemetry.metrics(max(1, min(hours, 24 * 90)))
         report["negative_feedback"] = await app.state.telemetry.negative_feedback(limit=10)
         return report
 
-    @app.post("/api/staff/approvals/{thread_id}", dependencies=[Depends(require_staff)])
-    async def decide(thread_id: str, decision: Decision) -> dict:
+    @app.post("/api/staff/approvals/{thread_id}")
+    async def decide(thread_id: str, decision: Decision,
+                     actor: str = Depends(require_staff)) -> dict:
         # Take it off the queue first so a double-click can't decide twice;
         # put it back on failure so the refund doesn't silently drop out.
         item = await app.state.pending.take(thread_id)
         if item is None:
             raise HTTPException(404, "Nothing waiting for approval here")
-        customer = DEMO_CUSTOMERS[item["customer"]]
+        account = await app.state.users.get(item["customer"])
+        customer = Customer(item["customer"], account.name if account else item["customer"])
         verdict = ({"type": "approve"} if decision.approve else
                    {"type": "reject", "message": decision.note or "Declined by staff."})
-        # An audit trail: who got what, and when, ends up in the logs.
+        # The audit trail: which staff member decided what, for whom (27).
+        orders = [a["args"].get("order_id") for a in item["actions"]]
+        await app.state.audit.record(
+            actor, "refund_approved" if decision.approve else "refund_rejected",
+            thread_id=thread_id, customer=customer.email, orders=orders, note=decision.note)
         logger.info("Refund decided", extra={"thread_id": thread_id, "approved": decision.approve,
-                                             "customer": customer.email})
+                                             "customer": customer.email, "by": actor})
         run_id, recorder = uuid.uuid4(), RunRecorder()
         config = traced(config_for(thread_id, customer), run_id, recorder, "staff-decision")
         try:

@@ -1,14 +1,15 @@
 """End-to-end tests of the server, agent, tools and middleware, with a
 scripted model (see conftest.py)."""
 
-from .conftest import STAFF_TOKEN, read_events, refunds
+from .conftest import STAFF_TOKEN, login, read_events, refunds
 
 SAM, DANA = "sam@example.com", "dana@example.com"
 STAFF = {"X-Staff-Token": STAFF_TOKEN}
 
 
 def chat(client, message, customer=SAM, thread_id=None):
-    response = client.post("/api/chat", json={"message": message, "customer_email": customer,
+    login(client, customer)
+    response = client.post("/api/chat", json={"message": message,
                                               "thread_id": thread_id})
     return response, (read_events(response) if response.status_code == 200 else [])
 
@@ -17,10 +18,10 @@ def reply_text(events) -> str:
     return "".join(data["text"] for event, data in events if event == "token")
 
 
-def test_pages_and_customers(client):
+def test_pages(client):
     assert client.get("/").status_code == 200
     assert client.get("/staff").status_code == 200
-    assert {c["name"] for c in client.get("/api/customers").json()} == {"Sam", "Dana"}
+    assert client.get("/api/customers").status_code == 404  # the old account picker is gone
 
 
 def test_policy_question_streams_an_answer(client):
@@ -46,8 +47,8 @@ def test_stock_check_reports_progress(client):
     assert "5 x Trail 500 in Porto" in reply_text(events)
 
 
-def test_unknown_customer_is_rejected(client):
-    response, _ = chat(client, "hi", customer="mallory@example.com")
+def test_logged_out_customers_are_rejected(client):
+    response = client.post("/api/chat", json={"message": "hi"})
     assert response.status_code == 401
 
 
@@ -55,8 +56,9 @@ def test_conversations_are_private(client):
     _, events = chat(client, "What are my orders?")
     thread_id = events[0][1]["thread_id"]
     # Sam can read it; Dana gets the same answer as for a missing conversation.
-    assert client.get(f"/api/threads/{thread_id}", params={"customer_email": SAM}).status_code == 200
-    assert client.get(f"/api/threads/{thread_id}", params={"customer_email": DANA}).status_code == 404
+    assert client.get(f"/api/threads/{thread_id}").status_code == 200
+    login(client, DANA)
+    assert client.get(f"/api/threads/{thread_id}").status_code == 404
     response, _ = chat(client, "And now?", customer=DANA, thread_id=thread_id)
     assert response.status_code == 404
 
@@ -71,8 +73,8 @@ def test_refund_waits_for_staff_then_pays(client):
     response, _ = chat(client, "Hello?", thread_id=thread_id)
     assert response.status_code == 409
 
-    # Staff endpoints need the token.
-    assert client.get("/api/staff/approvals").status_code == 401
+    # Staff endpoints: a customer's session isn't enough (403); the script token works.
+    assert client.get("/api/staff/approvals").status_code == 403
     queue = client.get("/api/staff/approvals", headers=STAFF).json()
     assert [item["thread_id"] for item in queue] == [thread_id]
     assert queue[0]["actions"][0]["args"]["order_id"] == "A1001"
@@ -83,7 +85,8 @@ def test_refund_waits_for_staff_then_pays(client):
     assert refunds(client) == [{"order_id": "A1001", "customer": SAM, "amount_eur": 899.0}]
     assert client.get("/api/staff/approvals", headers=STAFF).json() == []
 
-    thread = client.get(f"/api/threads/{thread_id}", params={"customer_email": SAM}).json()
+    login(client, SAM)
+    thread = client.get(f"/api/threads/{thread_id}").json()
     assert thread["pending"] is False
 
 

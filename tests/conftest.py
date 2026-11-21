@@ -82,7 +82,8 @@ class ScriptedModel(BaseChatModel):
         return self._generate(messages, stop, run_manager, **kwargs)
 
 
-STAFF_TOKEN = "test-staff-token"
+STAFF_TOKEN = "test-staff-token-for-scripts"
+DEMO_PASSWORD = "test-demo-password"  # the demo accounts' password in tests
 
 
 @pytest.fixture
@@ -109,7 +110,22 @@ def db_url(tmp_path):
 def make_settings(tmp_path, db_url, **overrides) -> Settings:
     # database_url="" so a DATABASE_URL in your shell can't point tests at real data.
     return Settings(index_dir=tmp_path / "index", db_path=db_url, database_url="",
-                    staff_token=STAFF_TOKEN, **overrides)
+                    staff_token=STAFF_TOKEN, demo_password=DEMO_PASSWORD, **overrides)
+
+
+def login(client, email: str, password: str = DEMO_PASSWORD):
+    """Log in as a demo account; later requests carry its cookie and CSRF token.
+
+    The test client keeps cookies like a browser, so this switches who is
+    logged in. Skipped if that account is logged in already.
+    """
+    if getattr(client, "logged_in_as", None) == email:
+        return None
+    response = client.post("/api/login", json={"email": email, "password": password})
+    if response.status_code == 200:
+        client.headers["X-CSRF-Token"] = response.json()["csrf_token"]
+        client.logged_in_as = email
+    return response
 
 
 def refunds(client) -> list[dict]:

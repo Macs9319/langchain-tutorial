@@ -44,8 +44,10 @@ behind a load balancer, set DATABASE_URL to a Postgres database:
 Tutorial 26 does that, and explains what else had to change.
 
 Setup:
-  Same as Tutorial 20. For production, also set a long STAFF_TOKEN in .env:
-    python -c "import secrets; print(secrets.token_urlsafe(32))"
+  Same as Tutorial 20. People log in (Tutorial 27): for the demo accounts set
+  PEDALWISE_DEMO_PASSWORD in .env (12+ characters), or create accounts with
+  27_auth.py --add-user. STAFF_TOKEN is optional, for scripts; if set, make it
+  long: python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 Run:
   uv run 21_deployment.py --config         # show the settings, find problems
@@ -60,6 +62,7 @@ With Docker:
 """
 
 import argparse
+import http.cookiejar
 import json
 import logging
 import os
@@ -116,12 +119,9 @@ def show_config() -> None:
     settings = Settings()
     print("Settings (from environment variables and .env):\n")
     for name, value in vars(settings).items():
-        if name in ("openai_api_key", "staff_token"):
-            value = "(generated for this run)" if (
-                name == "staff_token" and settings.staff_token_generated) else (
-                "(set)" if value else "(not set)")
-        if name != "staff_token_generated":
-            print(f"  {name:<25} {value}")
+        if name in ("openai_api_key", "staff_token", "demo_password", "database_url"):
+            value = "(set)" if value else "(not set)"  # secrets: never printed
+        print(f"  {name:<25} {value}")
     problems = settings.problems()
     print()
     if problems:
@@ -133,12 +133,19 @@ def show_config() -> None:
 # ---------------------------------------------------------------------------
 # 3. Smoke test a running deployment from the outside
 # ---------------------------------------------------------------------------
-def request(url: str, body: dict | None = None, timeout: float = 10) -> tuple[int, str]:
+# Keeps the session cookie between requests, like a browser (Tutorial 27).
+opener = urllib.request.build_opener(
+    urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+
+def request(url: str, body: dict | None = None, timeout: float = 10,
+            headers: dict | None = None) -> tuple[int, str]:
     """GET (or POST JSON) and return (status, text). Status 0: no connection."""
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, headers={"content-type": "application/json"})
+    req = urllib.request.Request(url, data=data,
+                                 headers={"content-type": "application/json", **(headers or {})})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with opener.open(req, timeout=timeout) as response:
             return response.status, response.read().decode()
     except urllib.error.HTTPError as error:
         return error.code, error.read().decode()
@@ -162,7 +169,7 @@ def check(base: str, chat: bool) -> None:
         ("alive", "/healthz", 200, "process answers"),
         ("ready", "/readyz", 200, "database reachable"),
         ("chat page", "/", 200, "page served"),
-        ("staff API locked", "/api/staff/approvals", 401, "needs the staff token"),
+        ("staff API locked", "/api/staff/approvals", 401, "needs a staff login"),
     ]
     for name, path, expected, why in expectations:
         started = time.perf_counter()
@@ -180,23 +187,31 @@ def check(base: str, chat: bool) -> None:
            started)
 
     if chat:
-        # One real question through the whole stack: model, search, streaming.
+        # One real question through the whole stack: login, model, search,
+        # streaming. Logs in as the demo customer Sam (PEDALWISE_DEMO_PASSWORD).
         started = time.perf_counter()
-        status, text = request(base + "/api/chat", {
-            "message": "What are your opening hours?", "customer_email": "sam@example.com"},
-            timeout=120)
-        # Server-Sent Events: blocks separated by a blank line, each with
-        # "event: ..." and "data: {json}" lines.
-        events = []
-        if status == 200:
-            for block in text.strip().split("\n\n"):
-                fields = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
-                events.append((fields.get("event"), json.loads(fields.get("data", "{}"))))
-        kinds = [kind for kind, _ in events]
-        reply = "".join(data["text"] for kind, data in events if kind == "token")
-        ok = bool(reply) and "error" not in kinds and kinds[-1:] == ["done"]
-        report(ok, "chat answers", f"{reply[:60]!r}" if ok else f"status {status}, events {kinds}",
-               started)
+        status, text = request(base + "/api/login", {
+            "email": "sam@example.com", "password": os.getenv("PEDALWISE_DEMO_PASSWORD", "")})
+        csrf = json.loads(text).get("csrf_token", "") if status == 200 else ""
+        if status != 200:
+            report(False, "demo login", f"HTTP {status}: set PEDALWISE_DEMO_PASSWORD to the "
+                   "app's demo password", started)
+        else:
+            status, text = request(base + "/api/chat", {"message": "What are your opening hours?"},
+                                   timeout=120, headers={"X-CSRF-Token": csrf})
+            # Server-Sent Events: blocks separated by a blank line, each with
+            # "event: ..." and "data: {json}" lines.
+            events = []
+            if status == 200:
+                for block in text.strip().split("\n\n"):
+                    fields = dict(line.split(": ", 1) for line in block.splitlines()
+                                  if ": " in line)
+                    events.append((fields.get("event"), json.loads(fields.get("data", "{}"))))
+            kinds = [kind for kind, _ in events]
+            reply = "".join(data["text"] for kind, data in events if kind == "token")
+            ok = bool(reply) and "error" not in kinds and kinds[-1:] == ["done"]
+            report(ok, "chat answers",
+                   f"{reply[:60]!r}" if ok else f"status {status}, events {kinds}", started)
 
     print(f"\n{'All checks passed.' if not failures else f'{failures} check(s) failed.'}")
     sys.exit(1 if failures else 0)

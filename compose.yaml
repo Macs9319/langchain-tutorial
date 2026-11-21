@@ -15,6 +15,10 @@ services:
       - "127.0.0.1:8001:8001"
     # OPENAI_API_KEY and STAFF_TOKEN come from your .env, at run time.
     env_file: .env
+    environment:
+      PEDALWISE_DEMO_PASSWORD: ${PEDALWISE_DEMO_PASSWORD:-}  # demo accounts (Tutorial 27)
+      # Plain http on 127.0.0.1. Behind HTTPS, remove this so cookies are Secure.
+      COOKIE_SECURE: "false"
     volumes:
       - pedalwise-data:/var/lib/pedalwise
     restart: unless-stopped

@@ -35,7 +35,9 @@ What you'll learn:
      copies, and a double approval pays once
 
 Setup:
-  Docker, and in .env: an API key and STAFF_TOKEN (the same for every copy).
+  Docker, and in .env: an API key, STAFF_TOKEN (for this script's staff calls)
+  and PEDALWISE_DEMO_PASSWORD (to log in as the demo customers, Tutorial 27).
+  Every copy reads the same .env, so they all agree.
 
 Run:
   docker compose -f compose.scale.yaml up --build -d
@@ -48,6 +50,7 @@ Or run the tests on Postgres:
 """
 
 import argparse
+import http.cookiejar
 import json
 import os
 import sys
@@ -62,19 +65,43 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+class Browser:
+    """One visitor: their own cookies, so their own login session (Tutorial 27).
+
+    The session lives in the shared database, so it works on every copy:
+    log in on one, keep going on another.
+    """
+
+    def __init__(self, base: str):
+        self.base, self.csrf = base, ""
+        self.opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+
+    def call(self, path: str, body: dict | None = None, staff: bool = False,
+             timeout: float = 120) -> tuple[int, str, str]:
+        """(status, body, which copy served it)."""
+        headers = {"content-type": "application/json", "X-CSRF-Token": self.csrf}
+        if staff:
+            headers["X-Staff-Token"] = os.getenv("STAFF_TOKEN", "")
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(self.base + path, data=data, headers=headers)
+        try:
+            with self.opener.open(request, timeout=timeout) as response:
+                return response.status, response.read().decode(), response.headers["X-Served-By"]
+        except urllib.error.HTTPError as error:
+            return error.code, error.read().decode(), error.headers.get("X-Served-By", "?")
+
+    def login(self, email: str) -> bool:
+        status, text, _ = self.call("/api/login", {
+            "email": email, "password": os.getenv("PEDALWISE_DEMO_PASSWORD", "")})
+        self.csrf = json.loads(text).get("csrf_token", "") if status == 200 else ""
+        return status == 200
+
+
 def call(base: str, path: str, body: dict | None = None, staff: bool = False,
          timeout: float = 120) -> tuple[int, str, str]:
-    """(status, body, which copy served it)."""
-    headers = {"content-type": "application/json"}
-    if staff:
-        headers["X-Staff-Token"] = os.getenv("STAFF_TOKEN", "")
-    data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(base + path, data=data, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, response.read().decode(), response.headers["X-Served-By"]
-    except urllib.error.HTTPError as error:
-        return error.code, error.read().decode(), error.headers.get("X-Served-By", "?")
+    """A request from nobody in particular (health checks, staff via token)."""
+    return Browser(base).call(path, body, staff, timeout)
 
 
 def sse_events(text: str) -> list[tuple[str, dict]]:
@@ -85,9 +112,9 @@ def sse_events(text: str) -> list[tuple[str, dict]]:
     return events
 
 
-def chat(base, message, customer, thread_id=None):
-    status, text, served_by = call(base, "/api/chat", {
-        "message": message, "customer_email": customer, "thread_id": thread_id})
+def chat(browser: Browser, message: str, thread_id: str | None = None):
+    status, text, served_by = browser.call("/api/chat", {
+        "message": message, "thread_id": thread_id})
     events = sse_events(text) if status == 200 else []
     thread = next((d["thread_id"] for e, d in events if e == "thread"), thread_id)
     reply = "".join(d["text"] for e, d in events if e == "token")
@@ -110,11 +137,16 @@ def check_spread(base: str) -> bool:
 # Check 2: a conversation started on one copy continues on another
 # ---------------------------------------------------------------------------
 def check_shared_conversation(base: str) -> bool:
-    thread, reply, _, first = chat(base, "What are my orders? One line.", "sam@example.com")
+    sam = Browser(base)
+    if not sam.login("sam@example.com"):
+        print("couldn't log in as Sam: set PEDALWISE_DEMO_PASSWORD to the app's demo password")
+        return False
+    thread, reply, _, first = chat(sam, "What are my orders? One line.")
     print(f"chat on {first}: {reply[:70]!r}")
-    # Keep asking for the conversation until a different copy answers.
+    # Keep asking for the conversation until a different copy answers: the
+    # login session and the conversation both have to work there too.
     for _ in range(20):
-        status, text, other = call(base, f"/api/threads/{thread}?customer_email=sam@example.com")
+        status, text, other = sam.call(f"/api/threads/{thread}")
         if other != first:
             saved = json.loads(text)["messages"] if status == 200 else []
             print(f"read back on {other}: {len(saved)} messages")
@@ -140,10 +172,14 @@ def check_double_approval(base: str) -> bool | None:
               "  docker compose -f compose.scale.yaml down -v")
         return None
 
-    thread, reply, pending, _ = chat(base, f"Please refund order {order}. I confirm, go ahead.",
-                                     customer)
+    customer_browser = Browser(base)
+    if not customer_browser.login(customer):
+        print(f"couldn't log in as {customer}: set PEDALWISE_DEMO_PASSWORD")
+        return False
+    thread, reply, pending, _ = chat(customer_browser,
+                                     f"Please refund order {order}. I confirm, go ahead.")
     if not pending:  # some models ask "shall I go ahead?" first
-        thread, reply, pending, _ = chat(base, "Yes, go ahead.", customer, thread)
+        thread, reply, pending, _ = chat(customer_browser, "Yes, go ahead.", thread)
     if not pending:
         print(f"the agent didn't request the refund: {reply[:80]!r}")
         return False

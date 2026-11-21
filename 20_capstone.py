@@ -29,13 +29,14 @@ What you'll learn:
   3. How to test an agent app without calling a model (tests/)
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env). Optional: STAFF_TOKEN, a fixed
-  token for the staff page (otherwise a random one is printed at startup).
+  Same as Tutorial 01 (OPENAI_API_KEY in .env), plus PEDALWISE_DEMO_PASSWORD
+  (12+ characters) to create the demo accounts, Sam, Dana and
+  staff@example.com, who log in with it (Tutorial 27 explains the logins).
 
 Run:
   uv run 20_capstone.py
-  customers: http://127.0.0.1:8001          (pick Sam or Dana at the top)
-  staff:     http://127.0.0.1:8001/staff    (paste the staff token)
+  customers: http://127.0.0.1:8001          (log in as sam@ or dana@example.com)
+  staff:     http://127.0.0.1:8001/staff    (log in as staff@example.com)
 
 Test (no API key or network needed):
   uv run pytest
@@ -51,7 +52,7 @@ from pedalwise.server import create_app
 
 if __name__ == "__main__":
     settings = Settings()
-    setup_logging(settings.log_level)  # shows the app's log lines, like the staff token
+    setup_logging(settings.log_level)  # shows the app's log lines
     # 127.0.0.1: reachable only from this computer. Opening it to a network
     # needs real logins first; anyone who can reach it can spend your credits.
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port)

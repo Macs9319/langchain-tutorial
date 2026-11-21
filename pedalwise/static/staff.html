@@ -21,6 +21,7 @@
   .approve { background:var(--ok); color:#fff; border:0; }
   .reject { background:var(--no); color:#fff; border:0; }
   #status { color:var(--muted); font-size:14px; }
+  [hidden] { display:none !important; }
   h2 { font-size:16px; margin:24px 0 8px; }
   .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:8px; }
   .stat { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
@@ -32,10 +33,15 @@
 <main>
   <h1>Refunds waiting for approval</h1>
   <div class="row">
-    <input id="token" type="password" placeholder="Staff token (printed when the server starts)">
-    <button id="save" type="button">Use token</button>
+    <form id="login" class="row" style="width:100%" hidden>
+      <input id="email" type="email" autocomplete="username" placeholder="Staff email" required>
+      <input id="password" type="password" autocomplete="current-password" placeholder="Password" required>
+      <button>Log in</button>
+    </form>
+    <span id="who" class="meta" hidden></span>
+    <button id="logout" type="button" hidden>Log out</button>
   </div>
-  <div id="status">Enter the staff token to see the queue.</div>
+  <div id="status">Log in with a staff account to see the queue.</div>
   <div id="queue"></div>
   <h2>Last 24 hours</h2>
   <div class="stats" id="stats"></div>
@@ -45,22 +51,24 @@
 </main>
 <script>
 const queue = document.getElementById("queue"), status = document.getElementById("status");
-let token = "", shownQueue = null;
-try { token = sessionStorage.getItem("staffToken") || ""; } catch {}
-document.getElementById("token").value = token;
+// Staff log in like customers do; their session's CSRF token goes with every
+// change (Tutorial 27). The audit log records which staff member decided.
+let csrf = null, shownQueue = null;
 
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; }
 
 async function api(path, options = {}) {
   const response = await fetch(path, {...options,
-    headers: {"content-type": "application/json", "X-Staff-Token": token, ...(options.headers || {})}});
-  if (response.status === 401) throw new Error("Wrong or missing staff token");
+    headers: {"content-type": "application/json", "X-CSRF-Token": csrf || "",
+              ...(options.headers || {})}});
+  if (response.status === 401) { showLogin(); throw new Error("Please log in"); }
+  if (response.status === 403) throw new Error("This account isn't a staff account");
   if (!response.ok) throw new Error("Request failed: " + response.status);
   return response.json();
 }
 
 async function refresh() {
-  if (!token) return;
+  if (!csrf) return;
   try {
     const items = await api("/api/staff/approvals");
     // Rebuild only when the queue changed, so a note being typed isn't wiped.
@@ -95,7 +103,7 @@ async function refresh() {
 
 // Metrics (Tutorial 22): what customers experienced, from the runs table.
 async function refreshMetrics() {
-  if (!token) return;
+  if (!csrf) return;
   let m;
   try { m = await api("/api/staff/metrics?hours=24"); } catch { return; }
   const ms = v => v == null ? "–" : v >= 1000 ? (v / 1000).toFixed(1) + " s" : v + " ms";
@@ -126,13 +134,50 @@ async function refreshMetrics() {
   }));
 }
 
-document.getElementById("save").addEventListener("click", () => {
-  token = document.getElementById("token").value.trim();
-  try { sessionStorage.setItem("staffToken", token); } catch {}
+function showStaff(user) {
+  csrf = user.csrf_token; shownQueue = null;
+  document.getElementById("login").hidden = true;
+  const who = document.getElementById("who");
+  who.textContent = `Logged in as ${user.name} (${user.email})`; who.hidden = false;
+  document.getElementById("logout").hidden = false;
+  status.textContent = "";
   refresh(); refreshMetrics();
+}
+
+function showLogin(message) {
+  csrf = null;
+  document.getElementById("login").hidden = false;
+  document.getElementById("who").hidden = true;
+  document.getElementById("logout").hidden = true;
+  queue.replaceChildren();
+  status.textContent = message || "Log in with a staff account to see the queue.";
+}
+
+document.getElementById("login").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const response = await fetch("/api/login", {method: "POST",
+    headers: {"content-type": "application/json"},
+    body: JSON.stringify({email: document.getElementById("email").value,
+                          password: document.getElementById("password").value})});
+  document.getElementById("password").value = "";
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) return showLogin(body.detail || "Couldn't log in.");
+  if (body.role !== "staff") return showLogin("That's a customer account, not a staff account.");
+  showStaff(body);
 });
-refresh(); setInterval(refresh, 5000);
-refreshMetrics(); setInterval(refreshMetrics, 30000);
+
+document.getElementById("logout").addEventListener("click", async () => {
+  await fetch("/api/logout", {method: "POST", headers: {"X-CSRF-Token": csrf || ""}});
+  showLogin();
+});
+
+(async () => {  // already logged in?
+  const response = await fetch("/api/me");
+  const user = response.ok ? await response.json() : null;
+  if (user && user.role === "staff") showStaff(user); else showLogin();
+})();
+setInterval(refresh, 5000);
+setInterval(refreshMetrics, 30000);
 </script>
 </body>
 </html>

@@ -6,7 +6,6 @@ changes (Tutorial 21).
 """
 
 import os
-import secrets
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -58,17 +57,22 @@ class Settings:
     # print the settings object.
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""),
                                 repr=False)
-    # Staff must send this token to approve refunds. If it isn't set, a random
-    # one is made and logged, so the staff page is never open by accident.
-    # Real apps use proper logins instead of a shared token.
+    # People log in (Tutorial 27). This token is only for scripts and tools
+    # that call the staff API (X-Staff-Token header). Unset: no token access.
     staff_token: str = field(default_factory=lambda: os.getenv("STAFF_TOKEN", ""), repr=False)
-    staff_token_generated: bool = field(default=False, init=False)
+    # If set, demo accounts (Sam, Dana, staff@example.com) are created at
+    # startup with this password. For tutorials and tests: leave it unset
+    # for a real deployment and create accounts with 27_auth.py instead.
+    demo_password: str = field(default_factory=lambda: os.getenv("PEDALWISE_DEMO_PASSWORD", ""),
+                               repr=False)
+    # Send the session cookie over HTTPS only. On by default in production;
+    # COOKIE_SECURE=false for a local stack on plain http://127.0.0.1.
+    cookie_secure: bool | None = field(default_factory=lambda: {
+        "true": True, "false": False}.get(os.getenv("COOKIE_SECURE", "").lower()))
 
-    def __post_init__(self):
-        if not self.staff_token:
-            # The dataclass is frozen, so set the fields the low-level way.
-            object.__setattr__(self, "staff_token", secrets.token_urlsafe(16))
-            object.__setattr__(self, "staff_token_generated", True)
+    @property
+    def secure_cookies(self) -> bool:
+        return self.production if self.cookie_secure is None else self.cookie_secure
 
     @property
     def db_url(self) -> str:
@@ -100,10 +104,8 @@ class Settings:
         if self.environment not in ("development", "production"):
             found.append(f"PEDALWISE_ENV must be development or production, not {self.environment!r}")
         if self.production:
-            # A generated token changes on every restart and only appears in
-            # the logs: staff would be locked out after each deploy.
-            if self.staff_token_generated:
-                found.append("STAFF_TOKEN must be set in production")
-            elif len(self.staff_token) < 24:
+            if self.staff_token and len(self.staff_token) < 24:
                 found.append("STAFF_TOKEN must be at least 24 characters in production")
+            if self.demo_password and len(self.demo_password) < 12:
+                found.append("PEDALWISE_DEMO_PASSWORD must be at least 12 characters")
         return found

@@ -22,7 +22,7 @@ from pedalwise.config import Settings
 from pedalwise.models import ThinkingDeepSeek, chat_model, split_spec
 from pedalwise.server import create_app
 
-from .conftest import STAFF_TOKEN, ScriptedModel, read_events
+from .conftest import DEMO_PASSWORD, STAFF_TOKEN, ScriptedModel, login, read_events
 
 
 def test_split_spec():
@@ -107,12 +107,12 @@ def test_settings_check_the_key_for_each_provider(monkeypatch):
 
 def test_capstone_works_with_keyword_search_only(tmp_path):
     settings = Settings(index_dir=tmp_path / "index", db_path=str(tmp_path / "t.sqlite"), database_url="",
-                        staff_token=STAFF_TOKEN, embeddings="none")
+                        staff_token=STAFF_TOKEN, demo_password=DEMO_PASSWORD, embeddings="none")
     app = create_app(settings, model=ScriptedModel(), fallback_model=None, embeddings=None)
     with TestClient(app) as client:
+        login(client, "sam@example.com")
         response = client.post("/api/chat", json={
-            "message": "Do PW-BRK-230 pads fit the City e-bike?",
-            "customer_email": "sam@example.com"})
+            "message": "Do PW-BRK-230 pads fit the City e-bike?"})
         reply = "".join(d["text"] for e, d in read_events(response) if e == "token")
     assert "PW-BRK-230" in reply
     assert not (tmp_path / "index").exists()  # nothing was embedded
