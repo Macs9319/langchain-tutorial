@@ -14,7 +14,7 @@ Rules that keep this safe:
   - Never edit a migration that has run anywhere: add a new one. A checksum
     of each applied migration is stored, and status() reports edits.
   - Forward only. To undo something, write another migration. Take a
-    backup before migrating production.
+    backup before migrating production (29_backups.py --backup).
   - Expand, then contract. During a deploy, old and new copies of the app
     run side by side against the same database. So add first (a column the
     old code ignores), ship the code that uses it, and only remove things

@@ -6,3 +6,4 @@ long_term_memory.sqlite*
 .rag_index/
 pedalwise.sqlite*
 sales.sqlite
+backups/

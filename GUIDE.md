@@ -1,6 +1,6 @@
 # Learning guide
 
-28 tutorials is a lot to start on. This page helps you choose: a route for
+29 tutorials is a lot to start on. This page helps you choose: a route for
 what you want to build, an index of where each topic is taught, and what
 each tutorial needs to run. The [README](README.md) has setup and the full
 table.
@@ -51,7 +51,7 @@ across conversations ([15](15_long_term_memory.py)), surviving failures
 
 ### Ship a real app
 
-**Agent route → 11 → 12 → 20 → 21 → 27 → 22 → 28 → 26**, *with 23, 25*
+**Agent route → 11 → 12 → 20 → 21 → 27 → 22 → 28 → 29 → 26**, *with 23, 25*
 
 [11](11_async_streaming.py) and [12](12_fastapi_server.py) put an agent
 behind a streaming web API. [20](20_capstone.py) is the capstone: the
@@ -64,6 +64,7 @@ The rest take it to production one problem at a time:
 | [27](27_auth.py) | Knowing who's who: logins, sessions, CSRF, an audit log |
 | [22](22_observability.py) | Knowing what it does: runs, tokens, latency, customer feedback |
 | [28](28_migrations.py) | Changing tables that already hold data |
+| [29](29_backups.py) | Getting the data back after a mistake or a lost disk |
 | [26](26_scaling.py) | Running several copies behind a load balancer |
 | *[23](23_model_providers.py)* | *Not depending on one model provider* |
 | *[25](25_model_selection.py)* | *Choosing the model with evidence* |
@@ -121,6 +122,7 @@ why that's the place for them.
 | Postgres, load balancing, races | 26 |
 | Logins, sessions, CSRF, password hashing | 27 |
 | Schema migrations | 28 |
+| Backups, restores, `pg_dump` | 29 |
 
 ## What each one needs
 
@@ -131,7 +133,7 @@ All tutorials need an API key in `.env`: OpenAI by default, or DeepSeek with
   with OpenAI, which DeepSeek can't do. The capstone (20-22) and 25 can skip
   embeddings with `EMBEDDINGS=none`; 25's judge is an OpenAI model unless you
   set `JUDGE_MODEL`. 17's PDF steps need a model that reads PDFs.
-- **Docker:** 21, 26, 27 and 28 show Docker commands; 26 needs Docker to run.
+- **Docker:** 21, 26, 27, 28 and 29 show Docker commands; 26 needs Docker to run.
 - **A demo password:** the capstone (20-22, 26-28) needs
   `PEDALWISE_DEMO_PASSWORD` in `.env` for its demo accounts.
 
@@ -143,6 +145,7 @@ These make no model calls, so they cost nothing:
 - `uv run 24_text_to_sql.py --guardrails`: trying to break the database
 - `uv run 27_auth.py`: trying to break the logins
 - `uv run 28_migrations.py`: upgrading an old database
+- `uv run 29_backups.py`: losing data and getting it back
 - `uv run 21_deployment.py --config` and `--check URL` (without `--chat`)
 - `uv run 22_observability.py --report`
 

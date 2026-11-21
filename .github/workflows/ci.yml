@@ -34,6 +34,13 @@ jobs:
       - run: uv run python -m py_compile *.py pedalwise/*.py mcp_servers/*.py
       # The capstone's tests use a scripted model and offline embeddings.
       - run: uv run pytest -q
+      # Backups on Postgres (Tutorial 29) need pg_dump 18, like the server;
+      # the runner's own is older.
+      - name: install the Postgres 18 client
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       # The same tests again on Postgres: each gets its own fresh database.
       - name: tests on Postgres
         run: uv run pytest -q
@@ -47,3 +54,5 @@ jobs:
       # Builds the image the way it would be deployed, so a broken
       # Dockerfile fails here instead of during a release.
       - run: docker build -t pedalwise .
+      # And the backup image (Tutorial 29), which adds the Postgres client.
+      - run: docker build --target backup -t pedalwise-backup .

@@ -45,6 +45,9 @@ class Settings:
     # (Tutorial 26). Unset: the SQLite file at db_path, for a single copy.
     database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", ""),
                               repr=False)  # it may contain a password
+    # Where 29_backups.py writes backups. In Docker, a volume of its own.
+    backup_dir: Path = field(default_factory=lambda: Path(
+        os.getenv("PEDALWISE_BACKUP_DIR", str(ROOT / "backups"))))
     # 127.0.0.1 accepts connections from this computer only. A container
     # needs 0.0.0.0 so traffic from outside the container reaches it.
     host: str = env("HOST", "127.0.0.1")

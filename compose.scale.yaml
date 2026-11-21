@@ -70,6 +70,26 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Tutorial 29: pg_dump every 24 hours, each checked by restoring it into a
+  # scratch database on the same server, keeping the newest 7. Restore:
+  #   docker compose -f compose.scale.yaml stop pedalwise    # every copy
+  #   docker compose -f compose.scale.yaml exec backup python 29_backups.py --restore NAME
+  #   docker compose -f compose.scale.yaml start pedalwise
+  # The old database is kept, renamed pedalwise_before_restore_<time>.
+  backup:
+    build:
+      context: .
+      target: backup  # the image with pg_dump 18 in it
+    command: ["python", "29_backups.py", "--every", "24h", "--keep", "7"]
+    environment:
+      DATABASE_URL: postgresql://pedalwise:${POSTGRES_PASSWORD:-pedalwise-local}@postgres:5432/pedalwise
+    volumes:
+      - pedalwise-pg-backups:/var/lib/pedalwise-backups
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.10
     ports:
@@ -82,3 +102,4 @@ services:
 
 volumes:
   pedalwise-pg:
+  pedalwise-pg-backups:

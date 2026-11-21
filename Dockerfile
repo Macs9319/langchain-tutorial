@@ -25,15 +25,17 @@ COPY data/ data/
 # The server, and the account tool (Tutorial 27), so accounts can be made
 # inside the container, against the database it actually uses:
 #   docker compose exec pedalwise python 27_auth.py --add-user you@example.com --role staff
-# and the migration tool (Tutorial 28), which the scaled stack runs before the app.
-COPY 21_deployment.py 27_auth.py 28_migrations.py ./
+# the migration tool (Tutorial 28), which the scaled stack runs before the app,
+# and the backup tool (Tutorial 29), which the "backup" service runs.
+COPY 21_deployment.py 27_auth.py 28_migrations.py 29_backups.py ./
 
 # --- Stage 2: the image that runs -------------------------------------------
-FROM python:3.12-slim
+FROM python:3.12-slim AS app
 
 # Run as an ordinary user: if someone breaks into the app, they don't get root.
 RUN useradd --create-home --uid 10001 pedalwise \
- && mkdir -p /var/lib/pedalwise && chown pedalwise /var/lib/pedalwise
+ && mkdir -p /var/lib/pedalwise /var/lib/pedalwise-backups \
+ && chown pedalwise /var/lib/pedalwise /var/lib/pedalwise-backups
 
 WORKDIR /app
 COPY --from=build /app /app
@@ -47,7 +49,8 @@ ENV PATH="/app/.venv/bin:$PATH" \
     HOST=0.0.0.0 \
     PORT=8001 \
     PEDALWISE_DB=/var/lib/pedalwise/pedalwise.sqlite \
-    PEDALWISE_INDEX_DIR=/var/lib/pedalwise/rag_index
+    PEDALWISE_INDEX_DIR=/var/lib/pedalwise/rag_index \
+    PEDALWISE_BACKUP_DIR=/var/lib/pedalwise-backups
 
 # Everything that must survive a restart lives here: conversations, the
 # approval queue and the search index (so documents are embedded once).
@@ -63,3 +66,24 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 # The exec form (a JSON list) makes Python process 1, so it receives
 # SIGTERM from `docker stop` and shuts down gracefully.
 CMD ["python", "21_deployment.py"]
+
+# --- Stage 3: the same, plus the Postgres client (Tutorial 29) ----------------
+# For the scaled stack's backup service: pg_dump must be the server's major
+# version (18) or newer, and Debian's own package is older, so it comes from
+# the PostgreSQL project's repository. Only the backup service uses this:
+#   build: {context: ., target: backup}
+FROM app AS backup
+USER root
+# env -u HOST: the setup script reads $HOST as the repository's address, and
+# this image sets HOST=0.0.0.0 for the server.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends postgresql-common \
+ && env -u HOST /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+ && apt-get install -y --no-install-recommends postgresql-client-18 \
+ && rm -rf /var/lib/apt/lists/*
+USER pedalwise
+HEALTHCHECK NONE
+
+# --- The default image -------------------------------------------------------
+# `docker build` builds the last stage, so end with the app itself.
+FROM app

@@ -23,5 +23,30 @@ services:
       - pedalwise-data:/var/lib/pedalwise
     restart: unless-stopped
 
+  # Tutorial 29: a backup every 24 hours, checked by restoring it to a
+  # scratch copy, keeping the newest 7. Its own volume, so deleting the data
+  # volume doesn't take the backups with it. (A real setup also copies them
+  # off this machine: a backup on the same disk dies with that disk.)
+  #   docker compose exec backup python 29_backups.py --list
+  #   docker compose exec backup python 29_backups.py --backup
+  #   docker compose cp backup:/var/lib/pedalwise-backups ./backups    # copy them out
+  # Restore: stop the app, restore, start it again:
+  #   docker compose stop pedalwise
+  #   docker compose exec backup python 29_backups.py --restore NAME
+  #   docker compose start pedalwise
+  backup:
+    build: .
+    command: ["python", "29_backups.py", "--every", "24h", "--keep", "7"]
+    volumes:
+      - pedalwise-data:/var/lib/pedalwise  # reads the app's SQLite file (and restores it)
+      - pedalwise-backups:/var/lib/pedalwise-backups
+    healthcheck:
+      disable: true  # the image's check asks the app's /readyz
+    depends_on:
+      pedalwise:
+        condition: service_healthy  # the database exists by then
+    restart: unless-stopped
+
 volumes:
   pedalwise-data:
+  pedalwise-backups:
