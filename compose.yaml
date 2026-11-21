@@ -1,0 +1,23 @@
+# Tutorial 21: run the Pedalwise app the way it runs in production.
+#
+#   docker compose up --build      start (add -d to run in the background)
+#   docker compose logs -f         follow the JSON logs
+#   docker compose down            stop; the data volume is kept
+#   docker compose down -v         stop and delete the data too
+
+services:
+  pedalwise:
+    build: .
+    # Published on 127.0.0.1 only: the demo has no real logins, so anyone who
+    # could reach it could spend your OpenAI credits. Put real authentication
+    # in front before opening it to a network.
+    ports:
+      - "127.0.0.1:8001:8001"
+    # OPENAI_API_KEY and STAFF_TOKEN come from your .env, at run time.
+    env_file: .env
+    volumes:
+      - pedalwise-data:/var/lib/pedalwise
+    restart: unless-stopped
+
+volumes:
+  pedalwise-data:

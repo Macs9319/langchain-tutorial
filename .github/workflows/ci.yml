@@ -1,0 +1,32 @@
+# Tutorial 21: check every push and pull request automatically.
+# Nothing here calls OpenAI, so it needs no API key and costs nothing.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      # --locked: fail if uv.lock doesn't match pyproject.toml.
+      - run: uv sync --locked
+      # Every tutorial must at least parse. LangChain moves fast, and this
+      # catches a broken file before a reader does.
+      - run: uv run python -m py_compile *.py pedalwise/*.py mcp_servers/*.py
+      # The capstone's tests use a scripted model and offline embeddings.
+      - run: uv run pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Builds the image the way it would be deployed, so a broken
+      # Dockerfile fails here instead of during a release.
+      - run: docker build -t pedalwise .

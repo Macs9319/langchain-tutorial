@@ -1,0 +1,10 @@
+# Keep secrets, local data and tooling out of the image (Tutorial 21).
+.env
+.git
+.venv
+.pytest_cache
+__pycache__
+*.sqlite*
+.rag_index
+tests
+mcp_servers

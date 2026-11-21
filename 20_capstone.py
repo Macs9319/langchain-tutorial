@@ -39,15 +39,19 @@ Run:
 
 Test (no API key or network needed):
   uv run pytest
+
+Tutorial 21 packages this app in a container for deployment.
 """
 
 import uvicorn
 
 from pedalwise.config import Settings
+from pedalwise.logs import setup_logging
 from pedalwise.server import create_app
 
 if __name__ == "__main__":
     settings = Settings()
+    setup_logging(settings.log_level)  # shows the app's log lines, like the staff token
     # 127.0.0.1: reachable only from this computer. Opening it to a network
     # needs real logins first; anyone who can reach it can spend your credits.
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port)

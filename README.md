@@ -25,6 +25,10 @@ Optional settings in `.env`:
 | `JUDGE_MODEL` | same as `OPENAI_MODEL` | 10 (the grading model) |
 | `FALLBACK_MODEL` | `gpt-5-nano` | 16 (the backup model) |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | all (see Tutorial 10) |
+| `STAFF_TOKEN` | random each run | 20, 21 (required, 24+ characters, in production) |
+| `PEDALWISE_ENV` | `development` | 21 (`production`: strict checks, JSON logs, no `/docs`) |
+| `HOST`, `PORT`, `LOG_LEVEL` | `127.0.0.1`, `8001`, `INFO` | 20, 21 |
+| `PEDALWISE_DB`, `PEDALWISE_INDEX_DIR` | files in this folder | 20, 21 (where data is saved) |
 
 ## The tutorials
 
@@ -50,6 +54,7 @@ Optional settings in `.env`:
 | 18 | [`18_guardrails.py`](18_guardrails.py) | Defend against prompt injection in layers: rules enforced in code, marking untrusted text, screening inputs and tool results, checking outputs | `uv run 18_guardrails.py` |
 | 19 | [`19_advanced_rag.py`](19_advanced_rag.py) | Better retrieval: heading-aware chunks, a saved index, hybrid keyword + vector search, query rewriting, re-ranking, measuring hit rate | `uv run 19_advanced_rag.py` |
 | 20 | [`20_capstone.py`](20_capstone.py) | **Capstone:** a complete support app in the [`pedalwise/`](pedalwise/) package: streaming chat, the customer's own orders, hybrid search, staff-approved refunds, saved conversations, and offline tests in [`tests/`](tests/) | `uv run 20_capstone.py`, then open http://127.0.0.1:8001 and `/staff`; test with `uv run pytest` |
+| 21 | [`21_deployment.py`](21_deployment.py) | Deploy the capstone: settings from the environment, failing fast on bad config, a [`Dockerfile`](Dockerfile) and [`compose.yaml`](compose.yaml), state on a volume, health checks, JSON logs, graceful shutdown, smoke tests, and [CI](.github/workflows/ci.yml) | `docker compose up --build`, then `uv run 21_deployment.py --check http://127.0.0.1:8001` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -76,7 +81,7 @@ Production
 06 + 10 ─► 19 advanced RAG (hybrid search, rewrite, rerank)
 
 Capstone
-11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests)
+11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests) ─► 21 deployment (Docker, CI)
 ```
 
 ## Sample data
@@ -101,6 +106,8 @@ Tutorial 19 adds `catalog.md`, a product catalog with part numbers like
 - `pedalwise.sqlite*`: the capstone's saved conversations. Delete it to start fresh.
 - `.rag_index/`: the saved search index from Tutorials 19 and 20, so documents
   are embedded once. It rebuilds itself when the documents change; safe to delete.
+- The `pedalwise-data` Docker volume: the container's conversations, approval
+  queue and search index (Tutorial 21). `docker compose down -v` deletes it.
 
 They're listed in `.gitignore` along with `.env`, so neither they nor your API
 key get committed.
@@ -111,3 +118,11 @@ Every run calls the OpenAI API and is billed to your account. Tutorials 01–09
 make a handful of calls each. Tutorial 10 makes roughly 50 (8 questions × 3
 variants, plus grading each answer). Tutorials 06, 07, 09 and 10 also call the
 embeddings API once per run to index the three small sample documents.
+Tutorial 21's `--check` makes no model calls unless you add `--chat` (one
+question); the container embeds the documents once, on its first start.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and
+pull request: it checks that every tutorial parses, runs the tests, and builds
+the Docker image. None of it calls OpenAI, so it needs no API key.
