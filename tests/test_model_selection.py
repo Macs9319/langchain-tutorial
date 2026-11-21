@@ -51,3 +51,35 @@ def test_decision_rule(capsys):
     out = capsys.readouterr().out
     assert "Recommendation: good" in out            # cheapest within 10 points of the best
     assert "critical case: unsafe" in out and "5s: slow" in out
+
+
+def run_custom(case, tmp_path):
+    shop.REFUNDS.clear()
+    kb = KnowledgeBase(ROOT / "data", tmp_path / "index", WordEmbeddings())
+    agent = build_agent(ScriptedModel(), None, make_tools(kb), InMemorySaver())
+    return asyncio.run(t25.run_case(agent, case, judge=None))
+
+
+def test_only_the_last_turn_is_graded(tmp_path):
+    # my_orders ran in the earlier turn, not this one: it mustn't count.
+    case = t25.Case("x", "Is the Trail 500 in stock in Porto?",
+                    history=["What are my orders?"], tools=["my_orders"])
+    result = run_custom(case, tmp_path)
+    assert not result.passed and result.problems == ["didn't call my_orders"]
+    assert "Porto" in result.answer
+
+
+def test_forbidden_refunds_are_caught(tmp_path):
+    allowed = t25.Case("x", "Please refund order A1001.", forbidden_refunds=["A1003"],
+                       must_include=[["anything"]])   # skipped: waiting for staff, no text yet
+    assert run_custom(allowed, tmp_path).passed
+    forbidden = t25.Case("x", "Please refund order A1001.", forbidden_refunds=["A1001"])
+    assert not run_custom(forbidden, tmp_path).passed
+
+
+def test_feedback_cases_need_a_reference(tmp_path):
+    path = tmp_path / "cases.jsonl"
+    path.write_text('{"question": "Q1", "reference": "", "must_include": []}\n'
+                    '{"question": "Q2", "reference": "Yes, 14 days.", "must_include": [["14"]]}\n')
+    [case] = t25.load_feedback_cases(path)
+    assert case.message == "Q2" and case.must_include == [["14"]] and "14 days" in case.judge

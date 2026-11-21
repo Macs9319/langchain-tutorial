@@ -72,7 +72,7 @@ Optional settings in `.env`:
 | 22 | [`22_observability.py`](22_observability.py) | See what the deployed agent does: run ids, a callback that counts model calls, tokens and tools, 👍/👎 feedback tied to each answer, staff metrics (p50/p95, error rate), optional LangSmith traces, and turning complaints into eval cases | `uv run 22_observability.py`; `--report` for the app's numbers |
 | 23 | [`23_model_providers.py`](23_model_providers.py) | Add DeepSeek: `init_chat_model` and `provider:model` settings, comparing providers on answers, structured output and tool calls, DeepSeek's thinking mode (and sending its reasoning back), keyword-only search without embeddings, falling back across providers | `uv run 23_model_providers.py` |
 | 24 | [`24_text_to_sql.py`](24_text_to_sql.py) | Answer questions from a database: an agent with schema and query tools, guardrails enforced by SQLite itself (read-only, an authorizer for tables, columns and functions, a time limit, a row cap), self-correcting queries, and evaluating by comparing result rows | `uv run 24_text_to_sql.py`; `--guardrails` (no API calls), `--eval` |
-| 25 | [`25_model_selection.py`](25_model_selection.py) | Choose the capstone's model on evidence: agent test cases that check behaviour, critical versus quality cases, repeated runs, cost per 1,000 messages from measured tokens, a speed budget, a written-down decision rule, and checking the grader before blaming the model | `uv run 25_model_selection.py` |
+| 25 | [`25_model_selection.py`](25_model_selection.py) | Choose the capstone's model on evidence: agent test cases that check behaviour, critical versus quality cases, repeated runs, cost per 1,000 messages from measured tokens, a speed budget, a written-down decision rule, harder multi-turn cases, importing Tutorial 22's thumbs-down cases, and checking the grader before blaming the model | `uv run 25_model_selection.py` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -141,8 +141,8 @@ Every run calls the OpenAI API and is billed to your account. Tutorials 01–09
 make a handful of calls each. Tutorial 10 makes roughly 50 (8 questions × 3
 variants, plus grading each answer). Tutorials 06, 07, 09 and 10 also call the
 embeddings API once per run to index the three small sample documents.
-Tutorial 25 makes about 400 calls with its defaults (4 models x 11 cases x 3
-runs, on cheap models; well under a dollar); `--repeats 1` cuts that to a third.
+Tutorial 25 makes about 650 calls with its defaults (4 models x 18 cases x 3
+runs, on cheap models; about a dollar); `--repeats 1` cuts that to a third.
 Tutorial 24's demo and each `--eval` question make a few calls each (the agent
 reads the schema first); `--guardrails` makes none. Tutorial 23 makes 3 calls per model you have a key for, plus 1 for the
 fallback demo; DeepSeek bills its own account. Tutorial 22's demo makes about 6; its `--report` and `--export-evals` make none.

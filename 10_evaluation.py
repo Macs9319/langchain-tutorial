@@ -151,7 +151,8 @@ def rule_check(answer: str, must_include: list[list[str]]) -> bool | None:
     """
     if not must_include:
         return None
-    text = answer.lower()
+    # Models write ’ as often as ': normalize it, or "don’t" fails a check for "don't".
+    text = answer.lower().replace("\u2019", "'")
     return all(any(option.lower() in text for option in options) for options in must_include)
 
 
@@ -160,17 +161,26 @@ class Grade(BaseModel):
 
     reason: str = Field(description="One sentence explaining the verdict")
     correct: bool = Field(description="True if the answer agrees with the reference "
-                                      "and adds no false or invented information")
+                                      "and says nothing the source documents don't support")
 
+
+# The judge gets the shop's documents as well as the reference answer.
+# Without them it can't tell a true extra detail ("unused items: 30 days")
+# from an invented one, and marks correct, more helpful answers as wrong.
+SOURCES = "\n\n".join(f"--- {p.name} ---\n{p.read_text(encoding='utf-8')}"
+                       for p in sorted((HERE / "data").glob("*.md")))
 
 judge_prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are grading a customer support assistant. Compare the ANSWER "
-               "with the REFERENCE. Mark it correct only if it gives the same facts "
-               "and adds nothing false or made up. Wording and length don't matter. "
-               "If the reference says the assistant should not know, the answer is "
-               "correct only if it declines rather than inventing an answer."),
+    ("system", "You are grading a customer support assistant for Pedalwise Bikes. "
+               "Mark the ANSWER correct if it gives the facts in the REFERENCE and "
+               "says nothing that contradicts the REFERENCE or the SOURCE DOCUMENTS. "
+               "Extra details are fine when the source documents support them; "
+               "anything they don't support counts as made up. Wording and length "
+               "don't matter. If the reference says the assistant should not know, "
+               "the answer is correct only if it declines rather than answering.\n\n"
+               "SOURCE DOCUMENTS:\n{sources}"),
     ("human", "QUESTION: {question}\nREFERENCE: {reference}\nANSWER: {answer}"),
-])
+]).partial(sources=SOURCES)
 # Reasoning comes before the verdict in Grade, so the judge explains first
 # and decides second, which tends to give more reliable grades.
 judge = judge_prompt | judge_llm.with_structured_output(Grade)
