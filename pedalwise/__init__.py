@@ -12,5 +12,7 @@ Each module has one job, and most map to an earlier tutorial:
                   approval queue and health checks (07, 11, 12, 21)
     approvals.py  the approval queue, saved so restarts don't lose it (21)
     logs.py       readable logs locally, JSON lines in production (21)
+    telemetry.py  run summaries and customer feedback (22)
+    models.py     any provider from a "provider:model" string, DeepSeek fixes (23)
     static/       the customer chat page and the staff page
 """

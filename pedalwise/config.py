@@ -12,6 +12,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from .models import API_KEY_VARS, split_spec
+
 load_dotenv()
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -27,8 +29,17 @@ class Settings:
     # "development" on your machine, "production" when deployed. Production
     # refuses to start with unsafe settings (see problems()) and hides /docs.
     environment: str = env("PEDALWISE_ENV", "development")
-    model: str = env("OPENAI_MODEL", "gpt-5-mini")
+    # "provider:model", e.g. "deepseek:deepseek-flash" (Tutorial 23). A bare
+    # name means OpenAI, so OPENAI_MODEL from earlier tutorials still works.
+    model: str = field(default_factory=lambda: os.getenv("CHAT_MODEL")
+                       or os.getenv("OPENAI_MODEL", "gpt-5-mini"))
+    # "none" turns the fallback off, e.g. when you only have a DeepSeek key.
     fallback_model: str = env("FALLBACK_MODEL", "gpt-5-nano")
+    deepseek_thinking: bool = field(default_factory=lambda: os.getenv(
+        "DEEPSEEK_THINKING", "").lower() in ("1", "true", "yes"))
+    # "openai": hybrid search (keywords + OpenAI embeddings).
+    # "none": keywords only. For providers without embeddings, like DeepSeek.
+    embeddings: str = env("EMBEDDINGS", "openai")
     data_dir: Path = ROOT / "data"
     index_dir: Path = field(default_factory=lambda: Path(
         os.getenv("PEDALWISE_INDEX_DIR", str(ROOT / ".rag_index"))))
@@ -64,8 +75,22 @@ class Settings:
     def problems(self) -> list[str]:
         """What's wrong with these settings. Production won't start unless empty."""
         found = []
-        if not self.openai_api_key:
-            found.append("OPENAI_API_KEY is not set")
+        # Every provider in use needs its key: the chat model, the fallback,
+        # and OpenAI again if it makes the embeddings.
+        providers = {split_spec(self.model)[0]}
+        if self.fallback_model != "none":
+            providers.add(split_spec(self.fallback_model)[0])
+        if self.embeddings == "openai":
+            providers.add("openai")
+        elif self.embeddings != "none":
+            found.append(f"EMBEDDINGS must be openai or none, not {self.embeddings!r}")
+        for provider in sorted(providers):
+            var = API_KEY_VARS.get(provider)
+            key = self.openai_api_key if provider == "openai" else os.getenv(var or "", "")
+            if var is None:
+                found.append(f"Unknown provider {provider!r} (known: {', '.join(API_KEY_VARS)})")
+            elif not key:
+                found.append(f"{var} is not set (needed for {provider})")
         if self.environment not in ("development", "production"):
             found.append(f"PEDALWISE_ENV must be development or production, not {self.environment!r}")
         if self.production:

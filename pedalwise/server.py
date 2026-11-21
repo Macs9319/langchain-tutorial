@@ -15,7 +15,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from langsmith import Client as LangSmithClient
@@ -26,6 +26,7 @@ from .agent import build_agent
 from .approvals import ApprovalQueue
 from .config import Settings
 from .knowledge import KnowledgeBase
+from .models import chat_model
 from .shop import DEMO_CUSTOMERS, Customer
 from .telemetry import RunRecorder, Telemetry
 from .tools import make_tools
@@ -66,12 +67,21 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
     async def lifespan(app: FastAPI):
         # Building the index may call the embeddings API: run it off the
         # event loop so the server stays responsive.
+        if embeddings is None and settings.embeddings == "openai":
+            embeddings_model = OpenAIEmbeddings(model="text-embedding-3-small")
+        else:
+            embeddings_model = embeddings  # None: keyword search only (23)
         kb = await asyncio.to_thread(
-            KnowledgeBase, settings.data_dir, settings.index_dir,
-            embeddings or OpenAIEmbeddings(model="text-embedding-3-small"))
-        primary = model or ChatOpenAI(model=settings.model, max_tokens=4096, timeout=60)
-        fallback = fallback_model if model else ChatOpenAI(
-            model=settings.fallback_model, max_tokens=4096, timeout=60)
+            KnowledgeBase, settings.data_dir, settings.index_dir, embeddings_model)
+        # Any provider, from a "provider:model" string (23).
+        def make(spec: str) -> BaseChatModel:
+            return chat_model(spec, deepseek_thinking=settings.deepseek_thinking,
+                              max_tokens=4096, timeout=60)
+        primary = model or make(settings.model)
+        if model:  # tests pass their own models
+            fallback = fallback_model
+        else:
+            fallback = None if settings.fallback_model == "none" else make(settings.fallback_model)
         # Conversations are saved in SQLite, so they survive restarts (07).
         async with AsyncSqliteSaver.from_conn_string(settings.db_path) as checkpointer:
             app.state.agent = build_agent(primary, fallback, make_tools(kb), checkpointer)

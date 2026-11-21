@@ -122,7 +122,7 @@ def show_config() -> None:
                 name == "staff_token" and settings.staff_token_generated) else (
                 "(set)" if value else "(not set)")
         if name != "staff_token_generated":
-            print(f"  {name:<16} {value}")
+            print(f"  {name:<25} {value}")
     problems = settings.problems()
     print()
     if problems:

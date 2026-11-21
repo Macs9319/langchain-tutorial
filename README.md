@@ -10,7 +10,8 @@ and [LangGraph](https://langchain-ai.github.io/langgraph/).
 
 ## Setup
 
-You need [uv](https://docs.astral.sh/uv/) and an OpenAI API key.
+You need [uv](https://docs.astral.sh/uv/) and an OpenAI API key. Tutorial 23
+adds DeepSeek, and the capstone can run on a DeepSeek key alone.
 
 ```bash
 uv sync                      # install dependencies into .venv
@@ -23,12 +24,16 @@ Optional settings in `.env`:
 |---|---|---|
 | `OPENAI_MODEL` | `gpt-5-mini` | all tutorials |
 | `JUDGE_MODEL` | same as `OPENAI_MODEL` | 10 (the grading model) |
-| `FALLBACK_MODEL` | `gpt-5-nano` | 16 (the backup model) |
+| `FALLBACK_MODEL` | `gpt-5-nano` | 16, 20-22 (the backup model; `provider:model`, or `none`) |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | all (see Tutorial 10) |
 | `STAFF_TOKEN` | random each run | 20, 21 (required, 24+ characters, in production) |
 | `PEDALWISE_ENV` | `development` | 21 (`production`: strict checks, JSON logs, no `/docs`) |
 | `HOST`, `PORT`, `LOG_LEVEL` | `127.0.0.1`, `8001`, `INFO` | 20, 21 |
 | `PEDALWISE_DB`, `PEDALWISE_INDEX_DIR` | files in this folder | 20, 21 (where data is saved) |
+| `CHAT_MODEL` | `OPENAI_MODEL` | 20-23 (`provider:model`, e.g. `deepseek:deepseek-flash`) |
+| `DEEPSEEK_API_KEY` | none | 23, and 20-22 with a DeepSeek `CHAT_MODEL` |
+| `EMBEDDINGS` | `openai` | 20-22 (`none`: keyword search only, for providers without embeddings) |
+| `DEEPSEEK_THINKING` | `false` | 20-23 (DeepSeek reasons before answering; slower, more tokens) |
 | `TELEMETRY_RETENTION_DAYS` | `30` | 22 (how long runs, with their questions and answers, are kept) |
 
 ## The tutorials
@@ -57,6 +62,7 @@ Optional settings in `.env`:
 | 20 | [`20_capstone.py`](20_capstone.py) | **Capstone:** a complete support app in the [`pedalwise/`](pedalwise/) package: streaming chat, the customer's own orders, hybrid search, staff-approved refunds, saved conversations, and offline tests in [`tests/`](tests/) | `uv run 20_capstone.py`, then open http://127.0.0.1:8001 and `/staff`; test with `uv run pytest` |
 | 21 | [`21_deployment.py`](21_deployment.py) | Deploy the capstone: settings from the environment, failing fast on bad config, a [`Dockerfile`](Dockerfile) and [`compose.yaml`](compose.yaml), state on a volume, health checks, JSON logs, graceful shutdown, smoke tests, and [CI](.github/workflows/ci.yml) | `docker compose up --build`, then `uv run 21_deployment.py --check http://127.0.0.1:8001` |
 | 22 | [`22_observability.py`](22_observability.py) | See what the deployed agent does: run ids, a callback that counts model calls, tokens and tools, 👍/👎 feedback tied to each answer, staff metrics (p50/p95, error rate), optional LangSmith traces, and turning complaints into eval cases | `uv run 22_observability.py`; `--report` for the app's numbers |
+| 23 | [`23_model_providers.py`](23_model_providers.py) | Add DeepSeek: `init_chat_model` and `provider:model` settings, comparing providers on answers, structured output and tool calls, DeepSeek's thinking mode (and sending its reasoning back), keyword-only search without embeddings, falling back across providers | `uv run 23_model_providers.py` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -84,7 +90,8 @@ Production
 
 Capstone
 11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests) ─► 21 deployment (Docker, CI)
-                                                                    └─► 22 observability ─► back to 10
+                                                                    ├─► 22 observability ─► back to 10
+                                                                    └─► 23 model providers (DeepSeek)
 ```
 
 ## Sample data
@@ -121,7 +128,8 @@ Every run calls the OpenAI API and is billed to your account. Tutorials 01–09
 make a handful of calls each. Tutorial 10 makes roughly 50 (8 questions × 3
 variants, plus grading each answer). Tutorials 06, 07, 09 and 10 also call the
 embeddings API once per run to index the three small sample documents.
-Tutorial 22's demo makes about 6; its `--report` and `--export-evals` make none.
+Tutorial 23 makes 3 calls per model you have a key for, plus 1 for the
+fallback demo; DeepSeek bills its own account. Tutorial 22's demo makes about 6; its `--report` and `--export-evals` make none.
 Tutorial 21's `--check` makes no model calls unless you add `--chat` (one
 question); the container embeds the documents once, on its first start.
 

@@ -17,11 +17,16 @@ def _tokenize(text: str) -> list[str]:
 
 
 class KnowledgeBase:
-    """Heading-aware chunks, a saved vector index, BM25 keywords, merged with RRF."""
+    """Heading-aware chunks, a saved vector index, BM25 keywords, merged with RRF.
 
-    def __init__(self, data_dir: Path, index_dir: Path, embeddings: Embeddings):
+    Without embeddings (embeddings=None) it searches by keywords only. That
+    misses paraphrases ("money back" vs "refund") but needs no embeddings
+    API, which some providers, like DeepSeek, don't offer (Tutorial 23).
+    """
+
+    def __init__(self, data_dir: Path, index_dir: Path, embeddings: Embeddings | None):
         self.chunks = self._load_chunks(data_dir)
-        self.store = self._load_or_build_index(index_dir, embeddings)
+        self.store = self._load_or_build_index(index_dir, embeddings) if embeddings else None
         self._build_keyword_index()
 
     @staticmethod
@@ -68,7 +73,9 @@ class KnowledgeBase:
         return [c for _, c in sorted(scored, key=lambda p: p[0], reverse=True)[:k]]
 
     def search(self, query: str, k: int = 4) -> list[Document]:
-        rankings = [self.store.similarity_search(query, k=10), self.keyword_search(query)]
+        rankings = [self.keyword_search(query)]
+        if self.store is not None:
+            rankings.insert(0, self.store.similarity_search(query, k=10))
         scores: dict[str, float] = {}
         docs: dict[str, Document] = {}
         for ranking in rankings:

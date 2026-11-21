@@ -55,14 +55,17 @@ def test_pending_refund_survives_a_restart(tmp_path):
 
 
 def test_settings_problems():
-    assert Settings(openai_api_key="sk-test").problems() == []  # development is lenient
-    assert "OPENAI_API_KEY is not set" in Settings(openai_api_key="").problems()
+    # Explicit models, so a CHAT_MODEL in your .env doesn't change the test.
+    openai = dict(model="gpt-5-mini", fallback_model="gpt-5-nano", embeddings="openai")
+    assert Settings(**openai, openai_api_key="sk-test").problems() == []  # development is lenient
+    assert Settings(**openai, openai_api_key="").problems() == [
+        "OPENAI_API_KEY is not set (needed for openai)"]
 
-    prod = dict(environment="production", openai_api_key="sk-test")
+    prod = dict(openai, environment="production", openai_api_key="sk-test")
     assert Settings(**prod, staff_token=GOOD_TOKEN).problems() == []
     assert Settings(**prod, staff_token="").problems() == ["STAFF_TOKEN must be set in production"]
     assert "at least 24" in Settings(**prod, staff_token="short").problems()[0]
-    assert Settings(environment="prod", openai_api_key="sk-test").problems()
+    assert Settings(**openai, environment="prod", openai_api_key="sk-test").problems()
 
 
 def test_settings_read_the_environment_when_created(monkeypatch):
