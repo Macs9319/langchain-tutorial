@@ -16,19 +16,19 @@ What you'll learn:
   5. Write your own middleware: a per-user prompt and a tool-call logger
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
 
 Run:
   uv run 13_create_agent_middleware.py
 """
 
-import os
 import time
 from dataclasses import dataclass
 from typing import Literal
 
 from dotenv import load_dotenv
 from langchain.agents import create_agent
+from langchain.agents.structured_output import ToolStrategy
 from langchain.agents.middleware import (
     HumanInTheLoopMiddleware,
     ModelCallLimitMiddleware,
@@ -40,17 +40,16 @@ from langchain.agents.middleware import (
     wrap_tool_call,
 )
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from pedalwise.models import default_chat_model
+
 load_dotenv()
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 # ---------------------------------------------------------------------------
 # Tools (from Tutorials 08 and 12)
@@ -115,6 +114,11 @@ def basic_agent_demo() -> None:
 # ---------------------------------------------------------------------------
 # Like .with_structured_output() in Tutorial 03, but for a whole agent run:
 # the agent uses its tools as usual, then fills in this model at the end.
+#
+# response_format=TicketSummary lets LangChain pick how: the provider's own
+# JSON-schema mode where it has one (OpenAI), which DeepSeek doesn't offer.
+# ToolStrategy asks for the result as one more tool call instead, which
+# works with any model that can call tools, so the code stays portable.
 class TicketSummary(BaseModel):
     """A support ticket created from the conversation."""
 
@@ -127,7 +131,7 @@ class TicketSummary(BaseModel):
 def structured_agent_demo() -> None:
     print("=== Step 2: response_format ===")
     agent = create_agent(llm, tools=[get_order], system_prompt=SYSTEM_PROMPT,
-                         response_format=TicketSummary)
+                         response_format=ToolStrategy(TicketSummary))
     result = ask(agent, "Order A1001 arrived with a scratched frame. Not happy!")
     ticket: TicketSummary = result["structured_response"]
     print("ticket:", ticket.model_dump(), "\n")

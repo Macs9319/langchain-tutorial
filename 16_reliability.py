@@ -16,8 +16,9 @@ What you'll learn:
   6. The same protections for agents, as middleware
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
-  Optional: FALLBACK_MODEL (default gpt-5-nano), the backup model.
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
+  Optional: FALLBACK_MODEL (default gpt-5-nano), the backup model, as
+  "provider:model" like CHAT_MODEL (Tutorial 23).
 
 Run:
   uv run 16_reliability.py
@@ -34,12 +35,15 @@ from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddl
 from langchain_core.caches import InMemoryCache
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain_core.runnables import RunnableLambda
-from langchain_openai import ChatOpenAI
+
+from pedalwise.models import chat_model, default_model_spec, split_spec
 
 load_dotenv()
 
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+MODEL = default_model_spec()
 FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-5-nano")
+# A model name that doesn't exist at the primary's provider, for the failure demos.
+BROKEN_MODEL = f"{split_spec(MODEL)[0]}:model-that-does-not-exist"
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +55,7 @@ FALLBACK_MODEL = os.getenv("FALLBACK_MODEL", "gpt-5-nano")
 #   don't      AuthenticationError (bad key), BadRequestError (bad input),
 #              NotFoundError (unknown model): the same request will fail
 #              again, so fix it or fall back to something else instead
+# openai's error classes cover DeepSeek too: langchain-deepseek uses the same SDK.
 RETRYABLE = (
     openai.RateLimitError,
     openai.APITimeoutError,
@@ -64,7 +69,7 @@ RETRYABLE = (
 # ("exponential backoff"). These two settings are your first line of defence:
 #   timeout      give up on one attempt after this many seconds
 #   max_retries  how many extra attempts after a retryable failure
-llm = ChatOpenAI(model=MODEL, max_tokens=4096, timeout=60, max_retries=3)
+llm = chat_model(MODEL, max_tokens=4096, timeout=60, max_retries=3)
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +112,8 @@ def retry_demo() -> None:
 # or when a model is retired.
 def fallback_demo() -> None:
     print("=== Step 3: with_fallbacks ===")
-    primary = ChatOpenAI(model="model-that-does-not-exist", max_retries=0)
-    backup = ChatOpenAI(model=FALLBACK_MODEL, max_tokens=4096)
+    primary = chat_model(BROKEN_MODEL, max_retries=0)
+    backup = chat_model(FALLBACK_MODEL, max_tokens=4096)
 
     robust_llm = primary.with_fallbacks([backup])  # list: tried in order
     reply = robust_llm.invoke("Say 'hello from the backup model' and nothing else.")
@@ -132,7 +137,7 @@ async def rate_limit_demo() -> None:
         check_every_n_seconds=0.1,  # how often a waiting call checks again
         max_bucket_size=1,          # no bursts: strictly one at a time
     )
-    limited_llm = ChatOpenAI(model=MODEL, max_tokens=4096, rate_limiter=limiter)
+    limited_llm = chat_model(MODEL, max_tokens=4096, rate_limiter=limiter)
 
     start = time.perf_counter()
     questions = [f"Reply with just the number {n}." for n in range(1, 5)]
@@ -153,7 +158,7 @@ async def rate_limit_demo() -> None:
 # for anything that should vary between calls.
 def cache_demo() -> None:
     print("=== Step 5: caching ===")
-    cached_llm = ChatOpenAI(model=MODEL, max_tokens=4096, cache=InMemoryCache())
+    cached_llm = chat_model(MODEL, max_tokens=4096, cache=InMemoryCache())
     question = "In one sentence, why do bicycles need regular servicing?"
 
     for label in ["first call ", "second call"]:
@@ -174,7 +179,7 @@ def cache_demo() -> None:
 def agent_demo() -> None:
     print("=== Step 6: retry and fallback middleware for agents ===")
     agent = create_agent(
-        ChatOpenAI(model="model-that-does-not-exist", max_retries=0),
+        chat_model(BROKEN_MODEL, max_retries=0),
         system_prompt="You are Pedalwise Bikes support. One short sentence.",
         # Order matters: each middleware wraps the ones listed after it.
         # Fallback is outermost, so the inner retry gets its chances first:
@@ -182,7 +187,7 @@ def agent_demo() -> None:
         # In the opposite order, the fallback would catch the first failure
         # and the retries would never happen.
         middleware=[
-            ModelFallbackMiddleware(ChatOpenAI(model=FALLBACK_MODEL, max_tokens=4096)),
+            ModelFallbackMiddleware(chat_model(FALLBACK_MODEL, max_tokens=4096)),
             # Retry each model call up to 2 more times, waiting 1s, then 2s
             # (doubling), with jitter. Here the model doesn't exist, so the
             # retries fail too. on_failure="error" then re-raises the error so

@@ -18,7 +18,7 @@ What you'll learn:
   5. Wrap it all in one simple event generator, ready for a web server
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
 
 Run:
   uv run 11_async_streaming.py
@@ -26,7 +26,6 @@ Run:
 """
 
 import asyncio
-import os
 import sys
 import time
 
@@ -35,17 +34,16 @@ from langchain_core.messages import AIMessageChunk, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from langgraph.config import get_stream_writer
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from pedalwise.models import default_chat_model
+
 load_dotenv()
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------

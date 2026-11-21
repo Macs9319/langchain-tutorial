@@ -48,7 +48,6 @@ Run:
 
 import argparse
 import math
-import os
 import random
 import sqlite3
 import time
@@ -59,7 +58,7 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 
-from pedalwise.models import chat_model
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
@@ -302,8 +301,7 @@ SYSTEM_PROMPT = f"""You answer questions from Pedalwise Bikes staff using the sh
 
 
 def build_agent(guarded: GuardedDatabase, path: Path = DB_PATH):
-    spec = os.getenv("CHAT_MODEL") or os.getenv("OPENAI_MODEL", "gpt-5-mini")
-    return create_agent(chat_model(spec, max_tokens=4096, timeout=60),
+    return create_agent(default_chat_model(max_tokens=4096, timeout=60),
                         tools=make_tools(guarded, path), system_prompt=SYSTEM_PROMPT)
 
 

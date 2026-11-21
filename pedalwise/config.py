@@ -12,7 +12,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from .models import API_KEY_VARS, split_spec
+from .models import API_KEY_VARS, deepseek_thinking_from_env, default_model_spec, split_spec
 
 load_dotenv()
 
@@ -31,12 +31,10 @@ class Settings:
     environment: str = env("PEDALWISE_ENV", "development")
     # "provider:model", e.g. "deepseek:deepseek-flash" (Tutorial 23). A bare
     # name means OpenAI, so OPENAI_MODEL from earlier tutorials still works.
-    model: str = field(default_factory=lambda: os.getenv("CHAT_MODEL")
-                       or os.getenv("OPENAI_MODEL", "gpt-5-mini"))
+    model: str = field(default_factory=default_model_spec)
     # "none" turns the fallback off, e.g. when you only have a DeepSeek key.
     fallback_model: str = env("FALLBACK_MODEL", "gpt-5-nano")
-    deepseek_thinking: bool = field(default_factory=lambda: os.getenv(
-        "DEEPSEEK_THINKING", "").lower() in ("1", "true", "yes"))
+    deepseek_thinking: bool = field(default_factory=deepseek_thinking_from_env)
     # "openai": hybrid search (keywords + OpenAI embeddings).
     # "none": keywords only. For providers without embeddings, like DeepSeek.
     embeddings: str = env("EMBEDDINGS", "openai")

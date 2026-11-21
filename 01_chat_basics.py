@@ -3,7 +3,7 @@ Tutorial 01 — Your first LangChain chat query
 =============================================
 
 What you'll learn:
-  1. Create a chat model (ChatOpenAI, backed by an OpenAI GPT model)
+  1. Create a chat model (OpenAI's gpt-5-mini unless you pick another)
   2. Send a single prompt and read the reply
   3. Send a conversation using message objects (system + human)
   4. Inspect the response metadata (token usage, stop reason)
@@ -12,33 +12,38 @@ What you'll learn:
 Setup:
   uv sync                                   # install dependencies
   echo 'OPENAI_API_KEY=sk-...' > .env      # or export it in your shell
-  # optional: OPENAI_MODEL=gpt-5  (defaults to gpt-5-mini)
+  # optional: CHAT_MODEL=openai:gpt-5 (defaults to openai:gpt-5-mini)
+  # another provider: DEEPSEEK_API_KEY=... and CHAT_MODEL=deepseek:deepseek-flash
+  # (see Tutorial 23; tutorials that embed documents still need an OpenAI key)
 
 Run:
   uv run 01_chat_basics.py
   uv run 01_chat_basics.py "Explain recursion in one sentence"
 """
 
-import os
 import sys
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-# Loads OPENAI_API_KEY (and optional OPENAI_MODEL) from a .env file, if present.
+from pedalwise.models import default_chat_model
+
+# Loads API keys (and optional CHAT_MODEL) from a .env file, if present.
 load_dotenv()
 
 # ---------------------------------------------------------------------------
 # Step 1: Create the chat model
 # ---------------------------------------------------------------------------
 # A "chat model" in LangChain takes a list of messages and returns a message.
-# Every provider (OpenAI, Anthropic, ...) exposes the same interface, so the
-# rest of this script would work unchanged with a different model class.
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# Every provider (OpenAI, DeepSeek, Anthropic, ...) exposes the same
+# interface, so the rest of the series works unchanged whichever you pick.
+#
+# default_chat_model() builds the model named by CHAT_MODEL in .env. With
+# nothing set it's OpenAI's gpt-5-mini, exactly as if you'd written:
+#     from langchain_openai import ChatOpenAI
+#     llm = ChatOpenAI(model="gpt-5-mini", max_tokens=4096)
+# Tutorial 23 shows how it works and how providers differ.
+llm = default_chat_model(max_tokens=4096)
 
 
 def simple_query(question: str) -> None:

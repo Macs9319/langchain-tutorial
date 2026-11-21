@@ -21,14 +21,15 @@ What you'll learn:
   5. Guard against endless loops with a step limit in the state
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL). The
+  embeddings come from OpenAI whatever CHAT_MODEL says (DeepSeek has no
+  embeddings API), so this one needs OPENAI_API_KEY too.
 
 Run:
   uv run 09_multi_agent.py
   uv run 09_multi_agent.py "Where is order A1003, and how long is the e-bike motor warranty?"
 """
 
-import os
 import sys
 from pathlib import Path
 from typing import Literal
@@ -38,21 +39,21 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_core.vectorstores import InMemoryVectorStore
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from pydantic import BaseModel, Field
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
 HERE = Path(__file__).parent
 MAX_STEPS = 6  # supervisor decisions allowed per customer message
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------

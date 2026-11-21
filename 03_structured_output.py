@@ -15,28 +15,26 @@ What you'll learn:
   5. Extract structured data from many texts with .batch()
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
 
 Run:
   uv run 03_structured_output.py
   uv run 03_structured_output.py "Pad Thai"
 """
 
-import os
 import sys
 from typing import Literal
 
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------

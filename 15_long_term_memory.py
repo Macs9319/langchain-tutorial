@@ -20,7 +20,9 @@ What you'll learn:
   5. Persist memories to SQLite and let users see and delete them (--chat)
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL). The
+  embeddings come from OpenAI whatever CHAT_MODEL says (DeepSeek has no
+  embeddings API), so this one needs OPENAI_API_KEY too.
 
 Run:
   uv run 15_long_term_memory.py                    # demos (in-memory store)
@@ -28,7 +30,6 @@ Run:
   uv run 15_long_term_memory.py --show --user sam  # list sam's saved memories
 """
 
-import os
 import sys
 import uuid
 from dataclasses import dataclass
@@ -38,21 +39,21 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain.tools import ToolRuntime, tool
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from langgraph.store.sqlite import SqliteStore
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
 HERE = Path(__file__).parent
 DB_PATH = HERE / "long_term_memory.sqlite"
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 # The index makes the store searchable by meaning: each saved memory's
 # "text" field is embedded, and search(query=...) finds the closest ones.

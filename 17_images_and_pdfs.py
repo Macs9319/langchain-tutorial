@@ -18,7 +18,7 @@ What you'll learn:
   5. Give an agent an uploaded photo, so it reads it and uses its tools
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
   The model must support image and PDF input; gpt-5-mini does.
 
 Run:
@@ -28,7 +28,6 @@ Run:
 
 import base64
 import mimetypes
-import os
 import sys
 from pathlib import Path
 
@@ -36,17 +35,16 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
 DATA = Path(__file__).parent / "data"
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +125,20 @@ def extract_receipt() -> Receipt:
 # The model receives both the PDF's text and an image of each page, so it can
 # read layouts, tables and stamps too. Very long PDFs are better split and
 # searched with RAG (Tutorial 06) than sent whole every time.
+def supports_pdf() -> bool:
+    # Not every model reads PDFs (deepseek-flash reads images, not PDFs).
+    # LangChain's model profile says which inputs a model accepts.
+    if (llm.profile or {}).get("pdf_inputs"):
+        return True
+    print("(skipped: this model doesn't accept PDFs; try CHAT_MODEL=openai:gpt-5-mini,\n"
+          " or extract the PDF's text first and send that)\n")
+    return False
+
+
 def ask_pdf() -> None:
     print("=== Step 3: questions about a PDF ===")
+    if not supports_pdf():
+        return
     pdf = file_block(DATA / "warranty_card.pdf")
     for question in ["What is the frame serial number?",
                      "Until when are the components covered?",
@@ -144,6 +154,8 @@ def ask_pdf() -> None:
 # ---------------------------------------------------------------------------
 def compare_documents() -> None:
     print("=== Step 4: reasoning across two files ===")
+    if not supports_pdf():
+        return
     reply = llm.invoke([HumanMessage(content=[
         {"type": "text", "text": (
             "The first file is a receipt, the second a warranty card. Do they "

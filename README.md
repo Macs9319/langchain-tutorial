@@ -5,13 +5,21 @@ multi-agent system with automated evaluation. Each tutorial builds on the
 previous ones, and every file explains itself in comments, so you can read
 them top to bottom.
 
-All tutorials use OpenAI models through [LangChain](https://python.langchain.com)
-and [LangGraph](https://langchain-ai.github.io/langgraph/).
+The tutorials use [LangChain](https://python.langchain.com) and
+[LangGraph](https://langchain-ai.github.io/langgraph/), with OpenAI models by
+default. Set `CHAT_MODEL` to run every tutorial on another provider, such as
+DeepSeek (Tutorial 23).
 
 ## Setup
 
-You need [uv](https://docs.astral.sh/uv/) and an OpenAI API key. Tutorial 23
-adds DeepSeek, and the capstone can run on a DeepSeek key alone.
+You need [uv](https://docs.astral.sh/uv/) and an OpenAI API key, or a DeepSeek
+key with `CHAT_MODEL=deepseek:deepseek-flash`. With DeepSeek alone, everything
+runs except what needs OpenAI's embeddings or PDF reading:
+
+- Tutorials 06, 07, 09, 10, 15 and 19 embed documents with OpenAI, so they
+  need an OpenAI key whatever `CHAT_MODEL` says (DeepSeek has no embeddings API).
+- Tutorial 17 skips its PDF steps on models that can't read PDFs.
+- The capstone (20-22) can use `EMBEDDINGS=none` for keyword-only search.
 
 ```bash
 uv sync                      # install dependencies into .venv
@@ -22,18 +30,18 @@ Optional settings in `.env`:
 
 | Variable | Default | Used by |
 |---|---|---|
-| `OPENAI_MODEL` | `gpt-5-mini` | all tutorials |
-| `JUDGE_MODEL` | same as `OPENAI_MODEL` | 10 (the grading model) |
+| `CHAT_MODEL` | `OPENAI_MODEL` | all tutorials (`provider:model`, e.g. `deepseek:deepseek-flash`) |
+| `OPENAI_MODEL` | `gpt-5-mini` | all tutorials, when `CHAT_MODEL` isn't set |
+| `JUDGE_MODEL` | same as `CHAT_MODEL` | 10 (the grading model; `provider:model`), 25 (default `openai:gpt-5-mini`) |
 | `FALLBACK_MODEL` | `gpt-5-nano` | 16, 20-22 (the backup model; `provider:model`, or `none`) |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | all (see Tutorial 10) |
 | `STAFF_TOKEN` | random each run | 20, 21 (required, 24+ characters, in production) |
 | `PEDALWISE_ENV` | `development` | 21 (`production`: strict checks, JSON logs, no `/docs`) |
 | `HOST`, `PORT`, `LOG_LEVEL` | `127.0.0.1`, `8001`, `INFO` | 20, 21 |
 | `PEDALWISE_DB`, `PEDALWISE_INDEX_DIR` | files in this folder | 20, 21 (where data is saved) |
-| `CHAT_MODEL` | `OPENAI_MODEL` | 20-23 (`provider:model`, e.g. `deepseek:deepseek-flash`) |
-| `DEEPSEEK_API_KEY` | none | 23, and 20-22 with a DeepSeek `CHAT_MODEL` |
+| `DEEPSEEK_API_KEY` | none | any tutorial, with a DeepSeek `CHAT_MODEL` |
 | `EMBEDDINGS` | `openai` | 20-22 (`none`: keyword search only, for providers without embeddings) |
-| `DEEPSEEK_THINKING` | `false` | 20-23 (DeepSeek reasons before answering; slower, more tokens) |
+| `DEEPSEEK_THINKING` | `false` | all (DeepSeek reasons before answering; slower, more tokens) |
 | `TELEMETRY_RETENTION_DAYS` | `30` | 22 (how long runs, with their questions and answers, are kept) |
 
 ## The tutorials

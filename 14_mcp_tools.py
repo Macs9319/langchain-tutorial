@@ -19,7 +19,7 @@ What you'll learn:
   5. Keep one session open for many calls, and what to watch for security-wise
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
   Steps 1-3 and 5's session demo make no OpenAI calls.
 
 Run:
@@ -27,7 +27,6 @@ Run:
 """
 
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -35,16 +34,15 @@ from dotenv import load_dotenv
 from langchain.agents import create_agent
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
-from langchain_openai import ChatOpenAI
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
 HERE = Path(__file__).parent
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 # ---------------------------------------------------------------------------
 # Step 1: Describe how to reach each server

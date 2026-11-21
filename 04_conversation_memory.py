@@ -14,28 +14,26 @@ What you'll learn:
   5. Put it together in an interactive chatbot (--chat)
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
 
 Run:
   uv run 04_conversation_memory.py          # run the demos
   uv run 04_conversation_memory.py --chat   # chat interactively (type 'quit' to exit)
 """
 
-import os
 import sys
 
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, trim_messages
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import ChatOpenAI
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 # MessagesPlaceholder("history") is a slot in the template that accepts a
 # whole list of messages: the earlier turns of the conversation.

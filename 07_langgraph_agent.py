@@ -18,7 +18,9 @@ What you'll learn:
   5. Persist memory to SQLite so it survives restarts (--chat)
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL). The
+  embeddings come from OpenAI whatever CHAT_MODEL says (DeepSeek has no
+  embeddings API), so this one needs OPENAI_API_KEY too.
 
 Run:
   uv run 07_langgraph_agent.py          # demos
@@ -26,7 +28,6 @@ Run:
   uv run 07_langgraph_agent.py --chat --new   # start a fresh conversation
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -35,22 +36,22 @@ from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
 from langchain_core.vectorstores import InMemoryVectorStore
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from pedalwise.models import default_chat_model
+
 load_dotenv()
 
 HERE = Path(__file__).parent
 DB_PATH = HERE / "memory.sqlite"
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------

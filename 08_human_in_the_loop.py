@@ -18,31 +18,29 @@ What you'll learn:
   5. Approve actions interactively (--chat)
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
 
 Run:
   uv run 08_human_in_the_loop.py          # scripted demos: approve, edit, reject
   uv run 08_human_in_the_loop.py --chat   # you play customer AND staff reviewer
 """
 
-import os
 import sys
 
 from dotenv import load_dotenv
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.types import Command, interrupt
 
+from pedalwise.models import default_chat_model
+
 load_dotenv()
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 # Fake order database and a log of refunds actually issued.
 ORDERS = {

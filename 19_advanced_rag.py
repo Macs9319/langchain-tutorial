@@ -19,7 +19,9 @@ What you'll learn:
   5. Re-rank candidates with the model, and measure retrieval quality
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL). The
+  embeddings come from OpenAI whatever CHAT_MODEL says (DeepSeek has no
+  embeddings API), so this one needs OPENAI_API_KEY too.
 
 Run:
   uv run 19_advanced_rag.py
@@ -27,7 +29,6 @@ Run:
 
 import hashlib
 import math
-import os
 import re
 import time
 from collections import Counter
@@ -36,9 +37,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain_core.documents import Document
 from langchain_core.vectorstores import InMemoryVectorStore
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import MarkdownHeaderTextSplitter
 from pydantic import BaseModel, Field
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
@@ -46,10 +49,8 @@ HERE = Path(__file__).parent
 DATA = HERE / "data"
 INDEX_DIR = HERE / ".rag_index"
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
 
@@ -208,9 +209,15 @@ class Relevance(BaseModel):
 
 def rerank(question: str, candidates: list[Document], top_n: int = 3) -> list[Document]:
     passages = "\n\n".join(f"[{i}] {d.page_content}" for i, d in enumerate(candidates))
-    result = llm.with_structured_output(Relevance).invoke(
-        f"Question: {question}\n\nScore each passage for how well it helps answer the "
-        f"question.\n\n{passages}")
+    prompt = (f"Question: {question}\n\nScore each passage for how well it helps "
+              f"answer the question.\n\n{passages}")
+    # Structured output can come back empty (None) when a model replies in
+    # plain text instead; DeepSeek did occasionally. Retry once, then keep
+    # the search order: a worse ranking beats a crashed request.
+    result = llm.with_structured_output(Relevance).invoke(prompt) or \
+        llm.with_structured_output(Relevance).invoke(prompt)
+    if result is None:
+        return candidates[:top_n]
     scores = result.scores + [0] * (len(candidates) - len(result.scores))  # if it gave too few
     ranked = sorted(zip(scores, range(len(candidates))), reverse=True)
     return [candidates[i] for _, i in ranked[:top_n]]

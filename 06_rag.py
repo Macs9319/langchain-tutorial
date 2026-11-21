@@ -18,7 +18,9 @@ What you'll learn:
   5. Build a RAG chain: retrieve -> prompt -> model -> answer, with sources
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL). The
+  embeddings come from OpenAI whatever CHAT_MODEL says (DeepSeek has no
+  embeddings API), so this one needs OPENAI_API_KEY too.
   This tutorial also calls OpenAI's embeddings API.
 
 Run:
@@ -26,7 +28,6 @@ Run:
   uv run 06_rag.py "How long is the battery warranty on e-bikes?"
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -36,17 +37,17 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.vectorstores import InMemoryVectorStore
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+from pedalwise.models import default_chat_model
 
 load_dotenv()
 
 DATA_DIR = Path(__file__).parent / "data"
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------

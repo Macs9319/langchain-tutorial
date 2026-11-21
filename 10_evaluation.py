@@ -28,7 +28,9 @@ Optional — tracing with LangSmith:
   No code changes are needed; every tutorial in this series will then trace.
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL). The
+  embeddings come from OpenAI whatever CHAT_MODEL says (DeepSeek has no
+  embeddings API), so this one needs OPENAI_API_KEY too.
 
 Run:
   uv run 10_evaluation.py
@@ -44,24 +46,21 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.vectorstores import InMemoryVectorStore
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
+
+from pedalwise.models import chat_model, default_chat_model, default_model_spec
 
 load_dotenv()
 
 HERE = Path(__file__).parent
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 # The judge grades the answers. Ideally use a model at least as capable as
 # the one being tested; set JUDGE_MODEL in .env to try a stronger one.
-judge_llm = ChatOpenAI(
-    model=os.getenv("JUDGE_MODEL", os.getenv("OPENAI_MODEL", "gpt-5-mini")),
-    max_tokens=4096,
-)
+judge_llm = chat_model(os.getenv("JUDGE_MODEL") or default_model_spec(), max_tokens=4096)
 
 
 # ---------------------------------------------------------------------------

@@ -20,13 +20,12 @@ What you'll learn:
   5. Defense 4: check the output before it reaches anyone
 
 Setup:
-  Same as Tutorial 01 (OPENAI_API_KEY in .env, optional OPENAI_MODEL).
+  Same as Tutorial 01 (an API key in .env, optional CHAT_MODEL).
 
 Run:
   uv run 18_guardrails.py
 """
 
-import os
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -35,16 +34,15 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import AgentState, after_agent, before_agent, wrap_tool_call
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import AIMessage, ToolMessage
-from langchain_openai import ChatOpenAI
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field
 
+from pedalwise.models import default_chat_model
+
 load_dotenv()
 
-llm = ChatOpenAI(
-    model=os.getenv("OPENAI_MODEL", "gpt-5-mini"),
-    max_tokens=4096,
-)
+# The model named by CHAT_MODEL in .env, OpenAI's gpt-5-mini if unset (Tutorial 23).
+llm = default_chat_model(max_tokens=4096)
 
 # ---------------------------------------------------------------------------
 # The shop's data

@@ -9,6 +9,7 @@ package for each provider. The one exception is DeepSeek, which needs a
 small fix, below.
 """
 
+import os
 from typing import Any
 
 from langchain.chat_models import init_chat_model
@@ -54,6 +55,24 @@ class ThinkingDeepSeek(ChatDeepSeek):
             if reasoning and sent.get("role") == "assistant":
                 sent["reasoning_content"] = reasoning
         return payload
+
+
+def default_model_spec() -> str:
+    """The model the tutorials use: CHAT_MODEL, else OPENAI_MODEL, else gpt-5-mini."""
+    return os.getenv("CHAT_MODEL") or os.getenv("OPENAI_MODEL", "gpt-5-mini")
+
+
+def deepseek_thinking_from_env() -> bool:
+    return os.getenv("DEEPSEEK_THINKING", "").lower() in ("1", "true", "yes")
+
+
+def default_chat_model(**kwargs: Any) -> BaseChatModel:
+    """The chat model from .env, so every tutorial follows one setting (Tutorial 23).
+
+    With no CHAT_MODEL set, this is the same as ChatOpenAI(model="gpt-5-mini", **kwargs).
+    """
+    return chat_model(default_model_spec(), deepseek_thinking=deepseek_thinking_from_env(),
+                      **kwargs)
 
 
 def chat_model(spec: str, deepseek_thinking: bool = False, **kwargs: Any) -> BaseChatModel:
