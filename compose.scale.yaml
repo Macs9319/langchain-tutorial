@@ -1,0 +1,58 @@
+# Tutorial 26: the Pedalwise app scaled out.
+#
+#   Caddy (load balancer, 127.0.0.1:8080)
+#     ├─► pedalwise copy 1 ─┐
+#     └─► pedalwise copy 2 ─┴─► Postgres (conversations, approvals,
+#                                         refunds, telemetry)
+#
+#   docker compose -f compose.scale.yaml up --build
+#   uv run 26_scaling.py --check http://127.0.0.1:8080
+#   docker compose -f compose.scale.yaml up -d --scale pedalwise=3   # more copies
+#   docker compose -f compose.scale.yaml down        # keep the data
+#   docker compose -f compose.scale.yaml down -v     # delete it too
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: pedalwise
+      POSTGRES_DB: pedalwise
+      # Not published outside this compose network. For anything real, set
+      # POSTGRES_PASSWORD in .env instead of relying on this default.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pedalwise-local}
+    volumes:
+      - pedalwise-pg:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "pedalwise"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  pedalwise:
+    build: .
+    deploy:
+      replicas: 2
+    # No ports here: only Caddy is reachable from outside.
+    env_file: .env  # OPENAI/DEEPSEEK keys and STAFF_TOKEN: every copy needs the same
+    environment:
+      DATABASE_URL: postgresql://pedalwise:${POSTGRES_PASSWORD:-pedalwise-local}@postgres:5432/pedalwise
+      # The search index is a cache each copy builds for itself on start.
+      PEDALWISE_INDEX_DIR: /tmp/rag_index
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - pedalwise
+    restart: unless-stopped
+
+volumes:
+  pedalwise-pg:

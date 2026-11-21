@@ -19,10 +19,12 @@ useless without them. They're deleted after TELEMETRY_RETENTION_DAYS.
 import json
 import time
 from collections import Counter
+from datetime import timedelta
 from typing import Any
 
-import aiosqlite
 from langchain_core.callbacks import BaseCallbackHandler
+
+from .database import Database, now_text
 
 MAX_TEXT = 2000  # characters of question/answer kept per run
 
@@ -72,15 +74,20 @@ def _percentile(values: list[int], pct: float) -> int | None:
 
 
 class Telemetry:
-    """Runs and feedback in SQLite. Async for the same reason as ApprovalQueue."""
+    """Runs and feedback, in SQLite or Postgres (pedalwise/database.py)."""
 
-    def __init__(self, db: aiosqlite.Connection):
+    def __init__(self, db: Database):
         self._db = db
 
     @classmethod
-    async def open(cls, db_path: str) -> "Telemetry":
-        db = await aiosqlite.connect(db_path, timeout=10)
-        await db.executescript("""
+    async def open(cls, url: str) -> "Telemetry":
+        """Connect and set up, for scripts that only need telemetry (Tutorial 22)."""
+        telemetry = cls(await Database.connect(url))
+        await telemetry.setup()
+        return telemetry
+
+    async def setup(self) -> None:
+        for statement in ("""
             CREATE TABLE IF NOT EXISTS runs (
                 run_id        TEXT PRIMARY KEY,
                 thread_id     TEXT NOT NULL,
@@ -95,73 +102,65 @@ class Telemetry:
                 tool_errors   INTEGER NOT NULL,
                 question      TEXT,
                 answer        TEXT,
-                created       TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                created       TEXT NOT NULL)""", """
             CREATE TABLE IF NOT EXISTS feedback (
                 run_id  TEXT PRIMARY KEY REFERENCES runs(run_id),
                 score   INTEGER NOT NULL,        -- 1 thumbs up, -1 thumbs down
                 comment TEXT,
-                created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-            CREATE INDEX IF NOT EXISTS runs_created ON runs(created);
-        """)
-        await db.commit()
-        return cls(db)
+                created TEXT NOT NULL)""",
+                "CREATE INDEX IF NOT EXISTS runs_created ON runs(created)"):
+            await self._db.execute(statement)
 
     async def record(self, run_id: str, thread_id: str, customer: str, kind: str, outcome: str,
                      recorder: RunRecorder, question: str | None, answer: str | None) -> None:
         await self._db.execute(
-            "INSERT OR REPLACE INTO runs (run_id, thread_id, customer, kind, outcome, latency_ms,"
-            " model_calls, input_tokens, output_tokens, tools, tool_errors, question, answer)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO runs (run_id, thread_id, customer, kind, outcome, latency_ms,"
+            " model_calls, input_tokens, output_tokens, tools, tool_errors, question, answer,"
+            " created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT (run_id) DO NOTHING",
             (run_id, thread_id, customer, kind, outcome, recorder.latency_ms,
              recorder.model_calls, recorder.input_tokens, recorder.output_tokens,
              json.dumps(recorder.tools), recorder.tool_errors,
-             (question or "")[:MAX_TEXT] or None, (answer or "")[:MAX_TEXT] or None))
-        await self._db.commit()
+             (question or "")[:MAX_TEXT] or None, (answer or "")[:MAX_TEXT] or None, now_text()))
 
     async def owner(self, run_id: str) -> str | None:
-        async with self._db.execute("SELECT customer FROM runs WHERE run_id = ?",
-                                    (run_id,)) as cursor:
-            row = await cursor.fetchone()
+        row = await self._db.fetchone("SELECT customer FROM runs WHERE run_id = ?", (run_id,))
         return row[0] if row else None
 
     async def add_feedback(self, run_id: str, score: int, comment: str | None) -> None:
-        # INSERT OR REPLACE: a customer who changes their mind replaces their vote.
+        # An upsert: a customer who changes their mind replaces their vote.
         await self._db.execute(
-            "INSERT OR REPLACE INTO feedback (run_id, score, comment) VALUES (?, ?, ?)",
-            (run_id, score, comment))
-        await self._db.commit()
+            "INSERT INTO feedback (run_id, score, comment, created) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT (run_id) DO UPDATE SET score = excluded.score,"
+            " comment = excluded.comment, created = excluded.created",
+            (run_id, score, comment, now_text()))
 
     async def delete_older_than(self, days: int) -> int:
-        async with self._db.execute(
-                "DELETE FROM feedback WHERE run_id IN (SELECT run_id FROM runs"
-                " WHERE created < datetime('now', ?))", (f"-{days} days",)):
-            pass
-        async with self._db.execute("DELETE FROM runs WHERE created < datetime('now', ?)",
-                                    (f"-{days} days",)) as cursor:
-            deleted = cursor.rowcount
-        await self._db.commit()
-        return deleted
+        cutoff = now_text(timedelta(days=days))
+        await self._db.execute("DELETE FROM feedback WHERE run_id IN "
+                               "(SELECT run_id FROM runs WHERE created < ?)", (cutoff,))
+        deleted = await self._db.fetchall(
+            "DELETE FROM runs WHERE created < ? RETURNING run_id", (cutoff,))
+        return len(deleted)
 
     async def negative_feedback(self, limit: int = 100) -> list[dict]:
         """Thumbs-down runs, newest first: the raw material for new eval cases."""
-        async with self._db.execute(
-                "SELECT r.run_id, r.thread_id, r.question, r.answer, f.comment, f.created"
-                " FROM feedback f JOIN runs r USING (run_id)"
-                " WHERE f.score < 0 ORDER BY f.created DESC LIMIT ?", (limit,)) as cursor:
-            keys = ("run_id", "thread_id", "question", "answer", "comment", "created")
-            return [dict(zip(keys, row)) async for row in cursor]
+        rows = await self._db.fetchall(
+            "SELECT r.run_id, r.thread_id, r.question, r.answer, f.comment, f.created"
+            " FROM feedback f JOIN runs r ON r.run_id = f.run_id"
+            " WHERE f.score < 0 ORDER BY f.created DESC LIMIT ?", (limit,))
+        keys = ("run_id", "thread_id", "question", "answer", "comment", "created")
+        return [dict(zip(keys, row)) for row in rows]
 
     async def metrics(self, hours: int = 24) -> dict:
         """A summary of the last `hours`: volume, errors, speed, cost, tools, feedback."""
-        since = (f"-{hours} hours",)
-        async with self._db.execute(
-                "SELECT outcome, latency_ms, model_calls, input_tokens, output_tokens, tools,"
-                " tool_errors FROM runs WHERE created >= datetime('now', ?)", since) as cursor:
-            rows = [row async for row in cursor]
-        async with self._db.execute(
-                "SELECT f.score, COUNT(*) FROM feedback f JOIN runs r USING (run_id)"
-                " WHERE r.created >= datetime('now', ?) GROUP BY f.score", since) as cursor:
-            votes = {score: count async for score, count in cursor}
+        since = (now_text(timedelta(hours=hours)),)
+        rows = await self._db.fetchall(
+            "SELECT outcome, latency_ms, model_calls, input_tokens, output_tokens, tools,"
+            " tool_errors FROM runs WHERE created >= ?", since)
+        votes = dict(await self._db.fetchall(
+            "SELECT f.score, COUNT(*) FROM feedback f JOIN runs r ON r.run_id = f.run_id"
+            " WHERE r.created >= ? GROUP BY f.score", since))
 
         outcomes = Counter(row[0] for row in rows)
         latencies = [row[1] for row in rows]
@@ -183,4 +182,5 @@ class Telemetry:
         }
 
     async def close(self) -> None:
+        """Close the connection (only when this was made with open())."""
         await self._db.close()

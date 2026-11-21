@@ -1,16 +1,15 @@
 """The business rules: the code that protects the money. No model involved."""
 
+import asyncio
+
 import pytest
 
 from pedalwise import shop
+from pedalwise.database import Database
+from pedalwise.refunds import RefundLedger
 
 SAM = shop.DEMO_CUSTOMERS["sam@example.com"]
 DANA = shop.DEMO_CUSTOMERS["dana@example.com"]
-
-
-@pytest.fixture(autouse=True)
-def no_refunds():
-    shop.REFUNDS.clear()
 
 
 def test_customers_only_see_their_own_orders():
@@ -29,7 +28,23 @@ def test_refund_refusals(customer, order_id, reason):
     assert reason in shop.refund_problem(customer, order_id)
 
 
-def test_eligible_refund_is_paid_once():
+def test_eligible_until_refunded():
     assert shop.refund_problem(SAM, "A1001") is None
-    assert shop.record_refund(SAM, "A1001") == 899.0
-    assert "already been refunded" in shop.refund_problem(SAM, "A1001")
+    assert shop.refund_amount(SAM, "A1001") == 899.0
+    assert "already been refunded" in shop.refund_problem(SAM, "A1001", already_refunded=True)
+
+
+def test_the_database_pays_each_order_once(db_url):
+    """Twenty attempts at once, as if from several copies of the app: one wins."""
+    async def scenario():
+        db = await Database.connect(db_url)
+        ledger = RefundLedger(db)
+        await ledger.setup()
+        results = await asyncio.gather(*(ledger.record("a1001", SAM.email, 899.0)
+                                          for _ in range(20)))
+        assert results.count(True) == 1
+        assert await ledger.is_refunded("A1001")
+        assert await ledger.all() == [{"order_id": "A1001", "customer": SAM.email,
+                                       "amount_eur": 899.0}]
+        await db.close()
+    asyncio.run(scenario())

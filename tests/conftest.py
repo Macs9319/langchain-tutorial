@@ -7,7 +7,9 @@ to drive the real agent, tools, middleware and server end to end.
 
 import hashlib
 import json
+import os
 import re
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,7 +18,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from pedalwise import shop
 from pedalwise.config import Settings
 from pedalwise.server import create_app
 
@@ -85,10 +86,40 @@ STAFF_TOKEN = "test-staff-token"
 
 
 @pytest.fixture
-def client(tmp_path):
-    shop.REFUNDS.clear()
-    settings = Settings(index_dir=tmp_path / "index", db_path=str(tmp_path / "test.sqlite"),
-                        staff_token=STAFF_TOKEN)
+def db_url(tmp_path):
+    """A fresh, empty database for one test.
+
+    SQLite by default. Set TEST_DATABASE_URL=postgresql://... to run the same
+    tests on Postgres (Tutorial 26; CI does both): each test then gets its
+    own new database, dropped afterwards.
+    """
+    base = os.getenv("TEST_DATABASE_URL")
+    if not base:
+        yield str(tmp_path / "test.sqlite")
+        return
+    import psycopg
+    name = f"pedalwise_test_{uuid.uuid4().hex[:12]}"
+    with psycopg.connect(base, autocommit=True) as admin:
+        admin.execute(f"CREATE DATABASE {name}")
+    yield f"{base.rsplit('/', 1)[0]}/{name}"
+    with psycopg.connect(base, autocommit=True) as admin:
+        admin.execute(f"DROP DATABASE {name} WITH (FORCE)")
+
+
+def make_settings(tmp_path, db_url, **overrides) -> Settings:
+    # database_url="" so a DATABASE_URL in your shell can't point tests at real data.
+    return Settings(index_dir=tmp_path / "index", db_path=db_url, database_url="",
+                    staff_token=STAFF_TOKEN, **overrides)
+
+
+def refunds(client) -> list[dict]:
+    """The refund ledger, as staff see it."""
+    return client.get("/api/staff/refunds", headers={"X-Staff-Token": STAFF_TOKEN}).json()
+
+
+@pytest.fixture
+def client(tmp_path, db_url):
+    settings = make_settings(tmp_path, db_url)
     app = create_app(settings, model=ScriptedModel(), fallback_model=None,
                      embeddings=WordEmbeddings())
     with TestClient(app) as test_client:  # runs the lifespan (index, database)

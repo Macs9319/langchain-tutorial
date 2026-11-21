@@ -37,12 +37,11 @@ What you'll learn:
   5. Why this app runs as one process, and what you'd change to run many
   6. Smoke-testing a deployment from the outside
 
-Why one process: conversations and the approval queue live in SQLite, a
-file on one machine, and each process builds its own search index. One
-uvicorn process handles many chats at once because everything is async
-(Tutorial 11). To run several copies behind a load balancer, move the
-conversations to Postgres (langgraph-checkpoint-postgres), the approval
-queue to the same database, and the index to a shared vector store.
+Why one process: with the default SQLite database, everything the app
+saves is a file on one machine. One uvicorn process handles many chats at
+once because everything is async (Tutorial 11). To run several copies
+behind a load balancer, set DATABASE_URL to a Postgres database:
+Tutorial 26 does that, and explains what else had to change.
 
 Setup:
   Same as Tutorial 20. For production, also set a long STAFF_TOKEN in .env:

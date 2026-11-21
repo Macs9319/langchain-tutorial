@@ -39,6 +39,8 @@ Optional settings in `.env`:
 | `PEDALWISE_ENV` | `development` | 21 (`production`: strict checks, JSON logs, no `/docs`) |
 | `HOST`, `PORT`, `LOG_LEVEL` | `127.0.0.1`, `8001`, `INFO` | 20, 21 |
 | `PEDALWISE_DB`, `PEDALWISE_INDEX_DIR` | files in this folder | 20, 21 (where data is saved) |
+| `DATABASE_URL` | none (SQLite at `PEDALWISE_DB`) | 20-26 (`postgresql://...`: a database shared by several copies) |
+| `POSTGRES_PASSWORD` | `pedalwise-local` | 26 (`compose.scale.yaml`'s Postgres; set your own for anything real) |
 | `DEEPSEEK_API_KEY` | none | any tutorial, with a DeepSeek `CHAT_MODEL` |
 | `EMBEDDINGS` | `openai` | 20-22 (`none`: keyword search only, for providers without embeddings) |
 | `DEEPSEEK_THINKING` | `false` | all (DeepSeek reasons before answering; slower, more tokens) |
@@ -73,6 +75,7 @@ Optional settings in `.env`:
 | 23 | [`23_model_providers.py`](23_model_providers.py) | Add DeepSeek: `init_chat_model` and `provider:model` settings, comparing providers on answers, structured output and tool calls, DeepSeek's thinking mode (and sending its reasoning back), keyword-only search without embeddings, falling back across providers | `uv run 23_model_providers.py` |
 | 24 | [`24_text_to_sql.py`](24_text_to_sql.py) | Answer questions from a database: an agent with schema and query tools, guardrails enforced by SQLite itself (read-only, an authorizer for tables, columns and functions, a time limit, a row cap), self-correcting queries, and evaluating by comparing result rows | `uv run 24_text_to_sql.py`; `--guardrails` (no API calls), `--eval` |
 | 25 | [`25_model_selection.py`](25_model_selection.py) | Choose the capstone's model on evidence: agent test cases that check behaviour, critical versus quality cases, repeated runs, cost per 1,000 messages from measured tokens, a speed budget, a written-down decision rule, harder multi-turn cases, importing Tutorial 22's thumbs-down cases, and checking the grader before blaming the model | `uv run 25_model_selection.py` |
+| 26 | [`26_scaling.py`](26_scaling.py) | Run several copies behind a load balancer: find state kept in one process (and the refund bug it hid), move it to Postgres behind a small SQLite/Postgres layer, let a primary key stop double refunds, start copies safely with a lock, Caddy in [`compose.scale.yaml`](compose.scale.yaml), and checking it from outside | `docker compose -f compose.scale.yaml up --build -d`, then `uv run 26_scaling.py` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -100,7 +103,7 @@ Production
 06 + 10 ─► 19 advanced RAG (hybrid search, rewrite, rerank)
 
 Capstone
-11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests) ─► 21 deployment (Docker, CI)
+11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests) ─► 21 deployment (Docker, CI) ─► 26 scaling out (Postgres, load balancer)
                                                                     ├─► 22 observability ─► back to 10
                                                                     └─► 23 model providers (DeepSeek) ─► 25 choosing a model (with 10)
 ```
@@ -129,6 +132,8 @@ Tutorial 19 adds `catalog.md`, a product catalog with part numbers like
   are embedded once. It rebuilds itself when the documents change; safe to delete.
 - `sales.sqlite`: Tutorial 24's made-up sales database. It's rebuilt the same
   every time, so delete it freely (or run with `--rebuild`).
+- The `pedalwise-pg` Docker volume: the Postgres database of Tutorial 26's
+  scaled-out stack. `docker compose -f compose.scale.yaml down -v` deletes it.
 - The `pedalwise-data` Docker volume: the container's conversations, approval
   queue and search index (Tutorial 21). `docker compose down -v` deletes it.
 
@@ -141,6 +146,7 @@ Every run calls the OpenAI API and is billed to your account. Tutorials 01–09
 make a handful of calls each. Tutorial 10 makes roughly 50 (8 questions × 3
 variants, plus grading each answer). Tutorials 06, 07, 09 and 10 also call the
 embeddings API once per run to index the three small sample documents.
+Tutorial 26's check makes about 4 model calls; the rest of it is free.
 Tutorial 25 makes about 650 calls with its defaults (4 models x 18 cases x 3
 runs, on cheap models; about a dollar); `--repeats 1` cuts that to a third.
 Tutorial 24's demo and each `--eval` question make a few calls each (the agent
@@ -152,5 +158,6 @@ question); the container embeds the documents once, on its first start.
 ## Continuous integration
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push and
-pull request: it checks that every tutorial parses, runs the tests, and builds
-the Docker image. None of it calls OpenAI, so it needs no API key.
+pull request: it checks that every tutorial parses, runs the tests on SQLite
+and again on Postgres, and builds the Docker image. None of it calls a model,
+so it needs no API key.

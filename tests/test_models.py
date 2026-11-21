@@ -106,7 +106,7 @@ def test_settings_check_the_key_for_each_provider(monkeypatch):
 
 
 def test_capstone_works_with_keyword_search_only(tmp_path):
-    settings = Settings(index_dir=tmp_path / "index", db_path=str(tmp_path / "t.sqlite"),
+    settings = Settings(index_dir=tmp_path / "index", db_path=str(tmp_path / "t.sqlite"), database_url="",
                         staff_token=STAFF_TOKEN, embeddings="none")
     app = create_app(settings, model=ScriptedModel(), fallback_model=None, embeddings=None)
     with TestClient(app) as client:

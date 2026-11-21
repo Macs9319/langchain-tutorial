@@ -22,7 +22,6 @@ ORDERS = {
 STOCK = {("city e-bike", "porto"): 2, ("city e-bike", "lisbon"): 0,
          ("trail 500", "porto"): 5, ("trail 500", "lisbon"): 3,
          ("gravel 300", "porto"): 1, ("gravel 300", "lisbon"): 4}
-REFUNDS: list[dict] = []
 
 RETURN_WINDOW_DAYS = 30  # matches data/returns_policy.md
 
@@ -47,8 +46,13 @@ def find_order(customer: Customer, order_id: str) -> dict | None:
     return order if order and order["customer"] == customer.email else None
 
 
-def refund_problem(customer: Customer, order_id: str) -> str | None:
-    """Why this refund must be refused, or None if it may go ahead."""
+def refund_problem(customer: Customer, order_id: str,
+                   already_refunded: bool = False) -> str | None:
+    """Why this refund must be refused, or None if it may go ahead.
+
+    already_refunded comes from the refund ledger in the database
+    (pedalwise/refunds.py), which every copy of the app shares.
+    """
     order = find_order(customer, order_id)
     if order is None:
         return "no such order on this customer's account"
@@ -56,17 +60,14 @@ def refund_problem(customer: Customer, order_id: str) -> str | None:
         return "the order hasn't been delivered yet"
     if order["delivered_days_ago"] > RETURN_WINDOW_DAYS:
         return f"the {RETURN_WINDOW_DAYS}-day return window has passed"
-    if any(r["order_id"] == order_id.upper() for r in REFUNDS):
+    if already_refunded:
         return "this order has already been refunded"
     return None
 
 
-def record_refund(customer: Customer, order_id: str) -> float:
-    """Refund the full price. Call only after refund_problem() returned None."""
-    order = find_order(customer, order_id)
-    REFUNDS.append({"order_id": order_id.upper(), "customer": customer.email,
-                    "amount_eur": order["price_eur"]})
-    return order["price_eur"]
+def refund_amount(customer: Customer, order_id: str) -> float:
+    """The full price. Call only after refund_problem() returned None."""
+    return find_order(customer, order_id)["price_eur"]
 
 
 def stock_level(item: str, store: str) -> int | None:

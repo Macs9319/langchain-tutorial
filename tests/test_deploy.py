@@ -6,21 +6,20 @@ import logging
 
 from fastapi.testclient import TestClient
 
-from pedalwise import shop
 from pedalwise.config import Settings
 from pedalwise.logs import JsonFormatter
 from pedalwise.server import create_app
 
-from .conftest import STAFF_TOKEN, ScriptedModel, WordEmbeddings, read_events
+from .conftest import (STAFF_TOKEN, ScriptedModel, WordEmbeddings, read_events, refunds,
+                       make_settings)
 
 STAFF = {"X-Staff-Token": STAFF_TOKEN}
 GOOD_TOKEN = "x" * 32
 
 
-def make_app(tmp_path, **overrides):
-    settings = Settings(index_dir=tmp_path / "index", db_path=str(tmp_path / "test.sqlite"),
-                        staff_token=STAFF_TOKEN, **overrides)
-    return create_app(settings, model=ScriptedModel(), fallback_model=None,
+def make_app(tmp_path, db_url, **overrides):
+    return create_app(make_settings(tmp_path, db_url, **overrides), model=ScriptedModel(),
+                      fallback_model=None,
                       embeddings=WordEmbeddings())
 
 
@@ -31,25 +30,25 @@ def test_health_checks(client):
 
 def test_api_docs_only_in_development(client, tmp_path):
     assert client.get("/docs").status_code == 200
-    with TestClient(make_app(tmp_path / "prod", environment="production")) as prod:
+    db = str(tmp_path / "prod.sqlite")
+    with TestClient(make_app(tmp_path, db, environment="production")) as prod:
         assert prod.get("/docs").status_code == 404
         assert prod.get("/openapi.json").status_code == 404
         assert prod.get("/healthz").status_code == 200
 
 
-def test_pending_refund_survives_a_restart(tmp_path):
-    shop.REFUNDS.clear()
-    with TestClient(make_app(tmp_path)) as first:
+def test_pending_refund_survives_a_restart(tmp_path, db_url):
+    with TestClient(make_app(tmp_path, db_url)) as first:
         response = first.post("/api/chat", json={"message": "Refund order A1001 please",
                                                  "customer_email": "sam@example.com"})
         thread_id = read_events(response)[0][1]["thread_id"]
     # A new process, same database: like a container being replaced.
-    with TestClient(make_app(tmp_path)) as second:
+    with TestClient(make_app(tmp_path, db_url)) as second:
         queue = second.get("/api/staff/approvals", headers=STAFF).json()
         assert [item["thread_id"] for item in queue] == [thread_id]
         second.post(f"/api/staff/approvals/{thread_id}", headers=STAFF, json={"approve": True})
-        assert shop.REFUNDS == [{"order_id": "A1001", "customer": "sam@example.com",
-                                 "amount_eur": 899.0}]
+        assert refunds(second) == [{"order_id": "A1001", "customer": "sam@example.com",
+                                    "amount_eur": 899.0}]
         assert second.post(f"/api/staff/approvals/{thread_id}", headers=STAFF,
                            json={"approve": True}).status_code == 404  # can't decide twice
 

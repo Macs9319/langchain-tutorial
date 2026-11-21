@@ -3,19 +3,21 @@
 import asyncio
 import logging
 import secrets
+import socket
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_openai import OpenAIEmbeddings
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 from langsmith import Client as LangSmithClient
@@ -25,13 +27,17 @@ from pydantic import BaseModel, Field
 from .agent import build_agent
 from .approvals import ApprovalQueue
 from .config import Settings
+from .database import Database, is_postgres_url
 from .knowledge import KnowledgeBase
 from .models import chat_model
+from .refunds import RefundLedger
 from .shop import DEMO_CUSTOMERS, Customer
 from .telemetry import RunRecorder, Telemetry
 from .tools import make_tools
 
 STATIC = Path(__file__).parent / "static"
+# Which copy of the app this is: the container's hostname (Tutorial 26).
+REPLICA = socket.gethostname()
 logger = logging.getLogger("pedalwise")
 FRIENDLY = {"search_policies": "Looking that up…", "my_orders": "Checking your orders…",
             "check_stock": "Checking stock…", "check_refund_eligibility": "Checking the order…",
@@ -54,6 +60,25 @@ class Feedback(BaseModel):
     customer_email: str
     score: Literal[1, -1]  # thumbs up or down
     comment: str | None = Field(default=None, max_length=1000)
+
+
+@asynccontextmanager
+async def open_checkpointer(url: str, db: Database) -> AsyncIterator:
+    """Saved conversations: SQLite for one copy, Postgres for several (07, 26)."""
+    if not is_postgres_url(url):
+        async with AsyncSqliteSaver.from_conn_string(url) as checkpointer:
+            yield checkpointer
+        return
+    from psycopg.rows import dict_row
+    from psycopg_pool import AsyncConnectionPool
+    # A pool, so conversations on this copy don't queue for one connection.
+    # These connection settings are what the Postgres checkpointer expects.
+    async with AsyncConnectionPool(url, max_size=10, open=False, kwargs={
+            "autocommit": True, "prepare_threshold": 0, "row_factory": dict_row}) as pool:
+        checkpointer = AsyncPostgresSaver(pool)
+        async with db.schema_lock():  # one copy at a time creates the tables
+            await checkpointer.setup()
+        yield checkpointer
 
 
 def create_app(settings: Settings | None = None, model: BaseChatModel | None = None,
@@ -82,13 +107,18 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
             fallback = fallback_model
         else:
             fallback = None if settings.fallback_model == "none" else make(settings.fallback_model)
-        # Conversations are saved in SQLite, so they survive restarts (07).
-        async with AsyncSqliteSaver.from_conn_string(settings.db_path) as checkpointer:
-            app.state.agent = build_agent(primary, fallback, make_tools(kb), checkpointer)
-            # Conversations waiting for staff, also in SQLite (21).
-            app.state.pending = await ApprovalQueue.open(settings.db_path)
-            # One summary row per run, plus customer feedback (22).
-            app.state.telemetry = await Telemetry.open(settings.db_path)
+        # Everything the app writes lives in one database, shared by every
+        # copy of the app: SQLite locally, Postgres when scaled out (26).
+        db = await Database.connect(settings.db_url)
+        app.state.pending = ApprovalQueue(db)      # refunds waiting for staff (21)
+        app.state.ledger = RefundLedger(db)        # refunds paid, once each (26)
+        app.state.telemetry = Telemetry(db)        # runs and feedback (22)
+        async with db.schema_lock():
+            for store in (app.state.pending, app.state.ledger, app.state.telemetry):
+                await store.setup()
+        async with open_checkpointer(settings.db_url, db) as checkpointer:
+            app.state.agent = build_agent(primary, fallback,
+                                          make_tools(kb, app.state.ledger), checkpointer)
             purged = await app.state.telemetry.delete_older_than(settings.telemetry_retention_days)
             if purged:
                 logger.info("Deleted old runs", extra={"runs": purged})
@@ -96,17 +126,25 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
                 logger.warning("No STAFF_TOKEN set. Staff token for this run: %s",
                                settings.staff_token)
             logger.info("Ready", extra={"environment": settings.environment,
-                                        "model": settings.model})
+                                        "model": settings.model, "replica": REPLICA,
+                                        "database": "postgres" if db.postgres else "sqlite"})
             yield
-            await app.state.pending.close()
-            await app.state.telemetry.close()
-            logger.info("Shut down cleanly")
+        await db.close()
+        logger.info("Shut down cleanly")
 
     # The interactive API docs help while developing; in production they just
     # advertise every endpoint to strangers.
     docs = ({"docs_url": None, "redoc_url": None, "openapi_url": None}
             if settings.production else {})
     app = FastAPI(title="Pedalwise support", lifespan=lifespan, **docs)
+
+    @app.middleware("http")
+    async def served_by(request: Request, call_next):
+        # Label every response with the copy that served it, so you can see
+        # a load balancer spreading requests (and find the right logs).
+        response = await call_next(request)
+        response.headers["X-Served-By"] = REPLICA
+        return response
 
     # -- dependencies: checks that run before an endpoint does --------------
     def current_customer(email: str) -> Customer:
@@ -263,6 +301,10 @@ def create_app(settings: Settings | None = None, model: BaseChatModel | None = N
     @app.get("/api/staff/approvals", dependencies=[Depends(require_staff)])
     async def approvals() -> list[dict]:
         return await app.state.pending.all()
+
+    @app.get("/api/staff/refunds", dependencies=[Depends(require_staff)])
+    async def refunds() -> list[dict]:
+        return await app.state.ledger.all()
 
     @app.get("/api/staff/metrics", dependencies=[Depends(require_staff)])
     async def metrics(hours: int = 24) -> dict:

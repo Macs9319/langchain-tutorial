@@ -6,9 +6,10 @@ from pathlib import Path
 
 from langgraph.checkpoint.memory import InMemorySaver
 
-from pedalwise import shop
 from pedalwise.agent import build_agent
+from pedalwise.database import Database
 from pedalwise.knowledge import KnowledgeBase
+from pedalwise.refunds import RefundLedger
 from pedalwise.tools import make_tools
 
 from .conftest import ScriptedModel, WordEmbeddings
@@ -21,10 +22,7 @@ CASES = {c.name: c for c in t25.CASES}
 
 
 def run(case_name, tmp_path):
-    shop.REFUNDS.clear()  # other tests may have refunded A1001 already
-    kb = KnowledgeBase(ROOT / "data", tmp_path / "index", WordEmbeddings())
-    agent = build_agent(ScriptedModel(), None, make_tools(kb), InMemorySaver())
-    return asyncio.run(t25.run_case(agent, CASES[case_name], judge=None))
+    return run_custom(CASES[case_name], tmp_path)
 
 
 def test_behaviour_checks(tmp_path):
@@ -54,10 +52,17 @@ def test_decision_rule(capsys):
 
 
 def run_custom(case, tmp_path):
-    shop.REFUNDS.clear()
-    kb = KnowledgeBase(ROOT / "data", tmp_path / "index", WordEmbeddings())
-    agent = build_agent(ScriptedModel(), None, make_tools(kb), InMemorySaver())
-    return asyncio.run(t25.run_case(agent, case, judge=None))
+    async def go():
+        db = await Database.connect(str(tmp_path / f"{case.name[:8]}.sqlite"))
+        ledger = RefundLedger(db)
+        await ledger.setup()
+        kb = KnowledgeBase(ROOT / "data", tmp_path / "index", WordEmbeddings())
+        agent = build_agent(ScriptedModel(), None, make_tools(kb, ledger), InMemorySaver())
+        try:
+            return await t25.run_case(agent, case, judge=None)
+        finally:
+            await db.close()
+    return asyncio.run(go())
 
 
 def test_only_the_last_turn_is_graded(tmp_path):

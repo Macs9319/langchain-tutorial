@@ -42,6 +42,10 @@ class Settings:
     index_dir: Path = field(default_factory=lambda: Path(
         os.getenv("PEDALWISE_INDEX_DIR", str(ROOT / ".rag_index"))))
     db_path: str = env("PEDALWISE_DB", str(ROOT / "pedalwise.sqlite"))
+    # A Postgres URL (postgresql://...) shared by every copy of the app
+    # (Tutorial 26). Unset: the SQLite file at db_path, for a single copy.
+    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", ""),
+                              repr=False)  # it may contain a password
     # 127.0.0.1 accepts connections from this computer only. A container
     # needs 0.0.0.0 so traffic from outside the container reaches it.
     host: str = env("HOST", "127.0.0.1")
@@ -65,6 +69,10 @@ class Settings:
             # The dataclass is frozen, so set the fields the low-level way.
             object.__setattr__(self, "staff_token", secrets.token_urlsafe(16))
             object.__setattr__(self, "staff_token_generated", True)
+
+    @property
+    def db_url(self) -> str:
+        return self.database_url or self.db_path
 
     @property
     def production(self) -> bool:

@@ -66,6 +66,7 @@ from fastapi.testclient import TestClient
 from langsmith.utils import tracing_is_enabled
 
 from pedalwise.config import Settings
+from pedalwise.database import is_postgres_url
 from pedalwise.server import create_app
 from pedalwise.telemetry import Telemetry
 
@@ -95,7 +96,7 @@ def print_report(m: dict) -> None:
 
 
 async def report(db_path: str, hours: int) -> None:
-    if not Path(db_path).exists():
+    if not is_postgres_url(db_path) and not Path(db_path).exists():
         print(f"No database at {db_path} yet. Run the app (20 or 21) and chat first.")
         return
     telemetry = await Telemetry.open(db_path)
@@ -162,7 +163,7 @@ def demo() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         # A fresh database so the report shows only this demo. The search
         # index is the shared one, so documents aren't embedded again.
-        settings = Settings(db_path=str(Path(tmp) / "demo.sqlite"))
+        settings = Settings(db_path=str(Path(tmp) / "demo.sqlite"), database_url="")
         staff = {"X-Staff-Token": settings.staff_token}
         with TestClient(create_app(settings)) as client:
             runs = {}
@@ -202,7 +203,7 @@ if __name__ == "__main__":
                         help="write thumbs-down runs as draft eval cases (JSON lines)")
     parser.add_argument("--db", default=None, help="database path (default: the app's)")
     args = parser.parse_args()
-    db_path = args.db or Settings().db_path
+    db_path = args.db or Settings().db_url  # the SQLite file, or DATABASE_URL (26)
     if args.report:
         asyncio.run(report(db_path, args.hours))
     elif args.export_evals:

@@ -1,0 +1,18 @@
+# Tutorial 26: spread requests across every copy of the Pedalwise app.
+:8080 {
+	reverse_proxy {
+		# "pedalwise" is the compose service name. Docker's DNS answers with
+		# one address per copy; re-reading it every few seconds picks up
+		# copies added with --scale or replaced after a crash.
+		dynamic a {
+			name pedalwise
+			port 8001
+			refresh 5s
+		}
+		lb_policy round_robin
+		# If a copy doesn't answer, try another instead of failing the
+		# request, and leave the bad one out for a while.
+		lb_retries 2
+		fail_duration 30s
+	}
+}

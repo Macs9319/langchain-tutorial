@@ -10,6 +10,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A throwaway Postgres, to run the same tests on it (Tutorial 26).
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: pedalwise
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: pedalwise
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pedalwise"
+          --health-interval 2s --health-timeout 3s --health-retries 30
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v6
@@ -22,6 +34,11 @@ jobs:
       - run: uv run python -m py_compile *.py pedalwise/*.py mcp_servers/*.py
       # The capstone's tests use a scripted model and offline embeddings.
       - run: uv run pytest -q
+      # The same tests again on Postgres: each gets its own fresh database.
+      - name: tests on Postgres
+        run: uv run pytest -q
+        env:
+          TEST_DATABASE_URL: postgresql://pedalwise:ci@localhost:5432/pedalwise
 
   docker:
     runs-on: ubuntu-latest

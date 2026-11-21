@@ -1,9 +1,7 @@
 """End-to-end tests of the server, agent, tools and middleware, with a
 scripted model (see conftest.py)."""
 
-from pedalwise import shop
-
-from .conftest import STAFF_TOKEN, read_events
+from .conftest import STAFF_TOKEN, read_events, refunds
 
 SAM, DANA = "sam@example.com", "dana@example.com"
 STAFF = {"X-Staff-Token": STAFF_TOKEN}
@@ -67,7 +65,7 @@ def test_refund_waits_for_staff_then_pays(client):
     _, events = chat(client, "Please refund order A1001, it's too small.")
     thread_id = events[0][1]["thread_id"]
     assert "approval_pending" in [event for event, _ in events]
-    assert shop.REFUNDS == []  # nothing paid yet
+    assert refunds(client) == []  # nothing paid yet
 
     # The customer can't keep chatting in that conversation while it waits.
     response, _ = chat(client, "Hello?", thread_id=thread_id)
@@ -82,7 +80,7 @@ def test_refund_waits_for_staff_then_pays(client):
     result = client.post(f"/api/staff/approvals/{thread_id}", headers=STAFF,
                          json={"approve": True}).json()
     assert "899.00" in result["reply"]
-    assert shop.REFUNDS == [{"order_id": "A1001", "customer": SAM, "amount_eur": 899.0}]
+    assert refunds(client) == [{"order_id": "A1001", "customer": SAM, "amount_eur": 899.0}]
     assert client.get("/api/staff/approvals", headers=STAFF).json() == []
 
     thread = client.get(f"/api/threads/{thread_id}", params={"customer_email": SAM}).json()
@@ -94,7 +92,7 @@ def test_rejected_refund_pays_nothing(client):
     thread_id = events[0][1]["thread_id"]
     client.post(f"/api/staff/approvals/{thread_id}", headers=STAFF,
                 json={"approve": False, "note": "Please send a photo first."})
-    assert shop.REFUNDS == []
+    assert refunds(client) == []
 
 
 def test_ineligible_refund_never_reaches_staff(client):
