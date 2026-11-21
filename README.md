@@ -63,6 +63,7 @@ Optional settings in `.env`:
 | 21 | [`21_deployment.py`](21_deployment.py) | Deploy the capstone: settings from the environment, failing fast on bad config, a [`Dockerfile`](Dockerfile) and [`compose.yaml`](compose.yaml), state on a volume, health checks, JSON logs, graceful shutdown, smoke tests, and [CI](.github/workflows/ci.yml) | `docker compose up --build`, then `uv run 21_deployment.py --check http://127.0.0.1:8001` |
 | 22 | [`22_observability.py`](22_observability.py) | See what the deployed agent does: run ids, a callback that counts model calls, tokens and tools, 👍/👎 feedback tied to each answer, staff metrics (p50/p95, error rate), optional LangSmith traces, and turning complaints into eval cases | `uv run 22_observability.py`; `--report` for the app's numbers |
 | 23 | [`23_model_providers.py`](23_model_providers.py) | Add DeepSeek: `init_chat_model` and `provider:model` settings, comparing providers on answers, structured output and tool calls, DeepSeek's thinking mode (and sending its reasoning back), keyword-only search without embeddings, falling back across providers | `uv run 23_model_providers.py` |
+| 24 | [`24_text_to_sql.py`](24_text_to_sql.py) | Answer questions from a database: an agent with schema and query tools, guardrails enforced by SQLite itself (read-only, an authorizer for tables, columns and functions, a time limit, a row cap), self-correcting queries, and evaluating by comparing result rows | `uv run 24_text_to_sql.py`; `--guardrails` (no API calls), `--eval` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -86,6 +87,7 @@ Production
                                          ├─► 16 reliability (retry, fallback)
                                          └─► 18 guardrails
 03 ─────► 17 images and PDFs
+05 + 13 + 18 ─► 24 text-to-SQL (guardrails in the database)
 06 + 10 ─► 19 advanced RAG (hybrid search, rewrite, rerank)
 
 Capstone
@@ -116,6 +118,8 @@ Tutorial 19 adds `catalog.md`, a product catalog with part numbers like
 - `pedalwise.sqlite*`: the capstone's saved conversations. Delete it to start fresh.
 - `.rag_index/`: the saved search index from Tutorials 19 and 20, so documents
   are embedded once. It rebuilds itself when the documents change; safe to delete.
+- `sales.sqlite`: Tutorial 24's made-up sales database. It's rebuilt the same
+  every time, so delete it freely (or run with `--rebuild`).
 - The `pedalwise-data` Docker volume: the container's conversations, approval
   queue and search index (Tutorial 21). `docker compose down -v` deletes it.
 
@@ -128,7 +132,8 @@ Every run calls the OpenAI API and is billed to your account. Tutorials 01–09
 make a handful of calls each. Tutorial 10 makes roughly 50 (8 questions × 3
 variants, plus grading each answer). Tutorials 06, 07, 09 and 10 also call the
 embeddings API once per run to index the three small sample documents.
-Tutorial 23 makes 3 calls per model you have a key for, plus 1 for the
+Tutorial 24's demo and each `--eval` question make a few calls each (the agent
+reads the schema first); `--guardrails` makes none. Tutorial 23 makes 3 calls per model you have a key for, plus 1 for the
 fallback demo; DeepSeek bills its own account. Tutorial 22's demo makes about 6; its `--report` and `--export-evals` make none.
 Tutorial 21's `--check` makes no model calls unless you add `--chat` (one
 question); the container embeds the documents once, on its first start.
