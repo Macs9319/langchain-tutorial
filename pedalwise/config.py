@@ -48,6 +48,15 @@ class Settings:
     # Where 29_backups.py writes backups. In Docker, a volume of its own.
     backup_dir: Path = field(default_factory=lambda: Path(
         os.getenv("PEDALWISE_BACKUP_DIR", str(ROOT / "backups"))))
+    # Alerts (Tutorial 30). Where to post them ({"text": ...}, e.g. a Slack
+    # incoming webhook), a URL to ping after every round of checks (a dead
+    # man's switch such as healthchecks.io), and the app's address as seen
+    # from the alert checker, for /readyz. All optional; secrets, like keys.
+    alert_webhook_url: str = field(default_factory=lambda: os.getenv("ALERT_WEBHOOK_URL", ""),
+                                   repr=False)
+    alert_heartbeat_url: str = field(default_factory=lambda: os.getenv(
+        "ALERT_HEARTBEAT_URL", ""), repr=False)
+    alert_app_url: str = env("ALERT_APP_URL", "")
     # 127.0.0.1 accepts connections from this computer only. A container
     # needs 0.0.0.0 so traffic from outside the container reaches it.
     host: str = env("HOST", "127.0.0.1")

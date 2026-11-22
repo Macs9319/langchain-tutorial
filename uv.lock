@@ -805,6 +805,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "argon2-cffi" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-deepseek" },
     { name = "langchain-mcp-adapters" },
@@ -829,6 +830,7 @@ dev = [
 requires-dist = [
     { name = "argon2-cffi", specifier = ">=25.1.0" },
     { name = "fastapi", specifier = ">=0.162.5" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "langchain", specifier = ">=1.5.0" },
     { name = "langchain-deepseek", specifier = ">=1.2.1" },
     { name = "langchain-mcp-adapters", specifier = ">=0.3.2" },

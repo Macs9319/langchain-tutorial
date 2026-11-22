@@ -26,8 +26,9 @@ COPY data/ data/
 # inside the container, against the database it actually uses:
 #   docker compose exec pedalwise python 27_auth.py --add-user you@example.com --role staff
 # the migration tool (Tutorial 28), which the scaled stack runs before the app,
-# and the backup tool (Tutorial 29), which the "backup" service runs.
-COPY 21_deployment.py 27_auth.py 28_migrations.py 29_backups.py ./
+# the backup tool (Tutorial 29), which the "backup" service runs, and the
+# alert checker (Tutorial 30), which the "alerts" service runs.
+COPY 21_deployment.py 27_auth.py 28_migrations.py 29_backups.py 30_alerts.py ./
 
 # --- Stage 2: the image that runs -------------------------------------------
 FROM python:3.12-slim AS app

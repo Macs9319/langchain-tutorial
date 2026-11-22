@@ -90,6 +90,26 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Tutorial 30: alerts, checked every minute. /readyz is asked through
+  # Caddy, as visitors see the app; Caddy routes around one dead copy, so
+  # this fires only when they're all down (see RUNBOOK.md#app_up).
+  #   docker compose -f compose.scale.yaml logs -f alerts
+  alerts:
+    build: .
+    command: ["python", "30_alerts.py", "--every", "1m"]
+    env_file: .env  # ALERT_WEBHOOK_URL, ALERT_HEARTBEAT_URL
+    environment:
+      DATABASE_URL: postgresql://pedalwise:${POSTGRES_PASSWORD:-pedalwise-local}@postgres:5432/pedalwise
+      ALERT_APP_URL: http://caddy:8080
+    volumes:
+      - pedalwise-pg-backups:/var/lib/pedalwise-backups:ro
+    healthcheck:
+      disable: true
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.10
     ports:

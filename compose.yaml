@@ -47,6 +47,32 @@ services:
         condition: service_healthy  # the database exists by then
     restart: unless-stopped
 
+  # Tutorial 30: checks every minute and posts alerts to ALERT_WEBHOOK_URL
+  # (from .env; without it alerts only go to this service's log). It reads
+  # the app's database and the backups, and asks the app's /readyz over the
+  # network, the way a visitor would.
+  #   docker compose logs -f alerts
+  #   docker compose exec alerts python 30_alerts.py --check
+  #   docker compose exec alerts python 30_alerts.py --test-notification
+  # It runs on the same machine as the app, so it dies with it: that's what
+  # ALERT_HEARTBEAT_URL is for (a service elsewhere that expects a ping).
+  alerts:
+    build: .
+    command: ["python", "30_alerts.py", "--every", "1m"]
+    env_file: .env
+    environment:
+      ALERT_APP_URL: http://pedalwise:8001
+    volumes:
+      # Not read-only: SQLite readers write to the -shm file next to it.
+      - pedalwise-data:/var/lib/pedalwise
+      - pedalwise-backups:/var/lib/pedalwise-backups:ro
+    healthcheck:
+      disable: true
+    depends_on:
+      pedalwise:
+        condition: service_healthy  # so a slow first start isn't an alert
+    restart: unless-stopped
+
 volumes:
   pedalwise-data:
   pedalwise-backups:

@@ -47,6 +47,9 @@ Optional settings in `.env`:
 | `PEDALWISE_DB`, `PEDALWISE_INDEX_DIR` | files in this folder | 20, 21 (where data is saved) |
 | `DATABASE_URL` | none (SQLite at `PEDALWISE_DB`) | 20-26 (`postgresql://...`: a database shared by several copies) |
 | `PEDALWISE_BACKUP_DIR` | `backups/` in this folder | 29 (where backups are written) |
+| `ALERT_WEBHOOK_URL` | none (alerts go to the log only) | 30 (where alerts are posted as `{"text": ...}`, e.g. a Slack incoming webhook) |
+| `ALERT_HEARTBEAT_URL` | none | 30 (pinged after every round of checks, so an outside service notices if the checker stops) |
+| `ALERT_APP_URL` | none (no `/readyz` probe) | 30 (the app's address as the checker reaches it; compose sets it) |
 | `POSTGRES_PASSWORD` | `pedalwise-local` | 26 (`compose.scale.yaml`'s Postgres; set your own for anything real) |
 | `DEEPSEEK_API_KEY` | none | any tutorial, with a DeepSeek `CHAT_MODEL` |
 | `EMBEDDINGS` | `openai` | 20-22 (`none`: keyword search only, for providers without embeddings) |
@@ -86,6 +89,7 @@ Optional settings in `.env`:
 | 27 | [`27_auth.py`](27_auth.py) | Real logins: Argon2id password hashes, server-side sessions in HttpOnly/SameSite/Secure cookies, CSRF tokens, the customer taken from the session (never the request), throttled guessing without revealing which emails exist, staff accounts and an audit log | `uv run 27_auth.py` (no API calls); `--add-user`, `--audit` |
 | 28 | [`28_migrations.py`](28_migrations.py) | Change tables that already hold data: numbered migrations recorded in the database, transactions, checksums for edited migrations, race-safe upgrades, a migrate step before the copies start, expand-then-contract, and the first feature that needed one (disabling accounts, which signs them out everywhere) | `uv run 28_migrations.py` (no API calls); `--status`, `--upgrade` |
 | 29 | [`29_backups.py`](29_backups.py) | Back up and restore the app's database: why copying a live SQLite file loses data, `VACUUM INTO` and `pg_dump`, checksums, proving each backup by restoring it to a scratch copy, a scheduled backup service in both compose files, restoring without destroying the current data, and what a restore loses (refunds that can be paid twice) | `uv run 29_backups.py` (no API calls); `--backup`, `--list`, `--restore` |
+| 30 | [`30_alerts.py`](30_alerts.py) | Get told when something breaks: facts gathered every minute (an outside `/readyz` probe, error rate, p95, tokens, thumbs-down, waiting refunds, backup age), rules with limits and minimum sample sizes, one message per change instead of one per check, "unknown" when a check can't run, retried delivery to a webhook, a heartbeat for the checker itself, an alerts service in both compose files, and a [`RUNBOOK.md`](RUNBOOK.md) for every alert | `uv run 30_alerts.py` (no API calls); `--check`, `--test-notification` |
 
 Run any tutorial without arguments to see its built-in demos. Scripts with
 `--chat` also have an interactive mode; type `quit` to leave it.
@@ -115,6 +119,7 @@ Production
 Capstone
 11 + 12 + 13 + 16 + 19 ─► 20 Pedalwise support app (with tests) ─► 21 deployment (Docker, CI) ─► 26 scaling out (Postgres, load balancer)
 18 + 21 ─────────────────► 27 real logins (sessions, CSRF, audit log) ─► 28 schema migrations ─► 29 backups and restores
+22 + 29 ─────────────────► 30 alerts and the runbook
                                                                     ├─► 22 observability ─► back to 10
                                                                     └─► 23 model providers (DeepSeek) ─► 25 choosing a model (with 10)
 ```
